@@ -4,6 +4,7 @@ from config import OUTPUT_DIR
 
 
 def write_report(
+    summary_df: pd.DataFrame,
     share_df: pd.DataFrame,
     base_df: pd.DataFrame,
     docs_df: pd.DataFrame,
@@ -14,6 +15,7 @@ def write_report(
 ) -> Path:
     output_path = OUTPUT_DIR / output_name
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        summary_df.to_excel(writer, sheet_name='基金清单摘要', index=False)
         share_df.to_excel(writer, sheet_name='全部份额', index=False)
         base_df.to_excel(writer, sheet_name='底层基金统计', index=False)
         docs_df.to_excel(writer, sheet_name='官方资料搜索结果', index=False)
