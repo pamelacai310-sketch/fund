@@ -1,0 +1,15 @@
+pandas
+openpyxl
+python-dotenv
+requests
+beautifulsoup4
+pdfplumber
+pypdf
+pillow
+rapidfuzz
+tqdm
+python-dateutil
+openai
+# Optional for image OCR:
+# paddleocr
+# paddlepaddle
