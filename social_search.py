@@ -79,6 +79,19 @@ def parse_date(value: str) -> str:
         return ''
 
 
+def is_relevant_social_result(base_name: str, title: str, snippet: str) -> bool:
+    text = f'{title} {snippet}'.lower()
+    tokens = [
+        token.lower()
+        for token in str(base_name).replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
+        if len(token) >= 4 and token.lower() not in {'fund', 'class', 'income', 'equity', 'bond'}
+    ]
+    if not tokens:
+        return True
+    hits = sum(1 for token in tokens[:5] if token in text)
+    return hits >= min(2, len(tokens))
+
+
 def is_recent_date(value: str, since: date, until: date) -> bool:
     parsed = parse_date(value)
     if not parsed:
@@ -91,8 +104,9 @@ def search_social_discussions(share_df: pd.DataFrame, max_results_per_code: int 
     if not SERPAPI_KEY:
         return pd.DataFrame(columns=SOCIAL_COLUMNS)
     rows = []
+    search_df = build_social_search_units(share_df)
     since_date, until_date = recent_window()
-    for _, row in share_df.iterrows():
+    for _, row in search_df.iterrows():
         product_code = row.get('product_code', '')
         keywords = build_social_keywords(product_code, row.get('fund_name_cn', ''), row.get('fund_name_en', ''), row.get('base_fund_name', ''))
         for platform in SOCIAL_PLATFORMS:
@@ -100,6 +114,8 @@ def search_social_discussions(share_df: pd.DataFrame, max_results_per_code: int 
                 query = build_social_query(keyword, platform, since_date, until_date)
                 for result in serpapi_search(query, max_results=max_results_per_code):
                     link = result.get('link', '')
+                    if not is_relevant_social_result(row.get('base_fund_name', ''), result.get('title', ''), result.get('snippet', '')):
+                        continue
                     publish_time = parse_date(result.get('date', ''))
                     rows.append({
                         'product_code': product_code,
@@ -120,6 +136,22 @@ def search_social_discussions(share_df: pd.DataFrame, max_results_per_code: int 
     if not rows:
         return pd.DataFrame(columns=SOCIAL_COLUMNS)
     return pd.DataFrame(rows)[SOCIAL_COLUMNS].drop_duplicates(subset=['product_code', 'platform', 'link', 'user_text']).reset_index(drop=True)
+
+
+def build_social_search_units(share_df: pd.DataFrame) -> pd.DataFrame:
+    if share_df.empty or 'base_fund_id' not in share_df.columns:
+        return share_df
+    rows = []
+    for base_id, group in share_df.groupby('base_fund_id', dropna=False):
+        first = group.iloc[0]
+        rows.append({
+            'product_code': ', '.join(sorted(set(x for x in group.get('product_code', pd.Series(dtype=str)).astype(str) if x))),
+            'base_fund_id': base_id,
+            'base_fund_name': first.get('base_fund_name', ''),
+            'fund_name_cn': first.get('fund_name_cn', ''),
+            'fund_name_en': first.get('fund_name_en', ''),
+        })
+    return pd.DataFrame(rows)
 
 
 def read_social_comments_csv(path: str) -> pd.DataFrame:
