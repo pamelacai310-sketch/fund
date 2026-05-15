@@ -24,6 +24,7 @@ SHARE_CLASS_PATTERNS = [
     r"\bHDG\b", r"\bHEDGED\b",
     r"\bACC\b", r"\bMDIST\b", r"\bDIST\b", r"\bDIS\.\b", r"\bACC\.\b",
     r"\bBC\b", r"\bBCH\b", r"\bBM2\b", r"\bBM3H\b", r"\bBM30\b", r"\bBCO\b",
+    r"\bHM[-\s]?(CNY|RMB)?\b", r"\bM[-\s]?(CNY|RMB)?\b", r"\bP[-\s]?(CNY|RMB)?\b",
     r"\bP[-\s]?CNY\b", r"\bM[-\s]?CNY\b", r"\bCLASS\s+[A-Z0-9]+\b",
 ]
 CN_SHARE_CLASS_WORDS = ['人民币对冲', '人民币', '对冲', '累计', '累积', '派息', '每月派息', '月派息', '分派', '美元', '港元', '份额']
@@ -119,11 +120,16 @@ def finalize_funds(df: pd.DataFrame) -> pd.DataFrame:
 def normalize_base_name(name: str) -> str:
     s = re.sub(r"\s+", ' ', str(name).strip())
     s = re.sub(r"\s*[-–—]\s*", ' - ', s)
+    s = re.sub(r"\(\s*hedged\s*\)", '', s, flags=re.I)
     for pat in SHARE_CLASS_PATTERNS:
         s = re.sub(pat, '', s, flags=re.I)
     for word in CN_SHARE_CLASS_WORDS:
         s = s.replace(word, '')
-    return re.sub(r"\s+", ' ', re.sub(r"[-–—_/]+$", '', s).strip()).strip()
+    s = re.sub(r"\(\s*\)", '', s)
+    s = re.sub(r"\s+", ' ', s)
+    s = re.sub(r"\s*[-–—_/]+\s*$", '', s)
+    s = re.sub(r"[\s.\-–—_/]+$", '', s)
+    return s.strip()
 
 
 def derive_base_fund_name(row: pd.Series) -> str:

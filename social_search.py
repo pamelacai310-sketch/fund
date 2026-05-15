@@ -88,6 +88,8 @@ def is_recent_date(value: str, since: date, until: date) -> bool:
 
 
 def search_social_discussions(share_df: pd.DataFrame, max_results_per_code: int = MAX_SOCIAL_RESULTS_PER_QUERY) -> pd.DataFrame:
+    if not SERPAPI_KEY:
+        return pd.DataFrame(columns=SOCIAL_COLUMNS)
     rows = []
     since_date, until_date = recent_window()
     for _, row in share_df.iterrows():
