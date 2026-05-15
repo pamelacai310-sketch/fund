@@ -14,6 +14,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 SUPPORTED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 SUPPORTED_TABLE_EXTS = {".xlsx", ".xls", ".csv"}
+SUPPORTED_TEXT_EXTS = {".txt", ".md"}
+SUPPORTED_PDF_EXTS = {".pdf"}
 
 DOC_KEYWORDS = [
     "factsheet",
@@ -29,3 +31,24 @@ DOC_KEYWORDS = [
 
 SOCIAL_PLATFORMS = ["小红书", "微博", "抖音"]
 SOCIAL_RECENT_DAYS = 183
+MAX_DOC_RESULTS_PER_FUND = int(os.getenv("MAX_DOC_RESULTS_PER_FUND", "10"))
+MAX_SOCIAL_RESULTS_PER_QUERY = int(os.getenv("MAX_SOCIAL_RESULTS_PER_QUERY", "8"))
+FETCH_DOCUMENT_TEXT = os.getenv("FETCH_DOCUMENT_TEXT", "1") != "0"
+
+OFFICIAL_DOMAINS = [
+    "blackrock.com",
+    "jpmorgan.com",
+    "allianzgi.com",
+    "fidelity.com",
+    "schroders.com",
+    "ubs.com",
+    "hsbc.com",
+    "invesco.com",
+    "pimco.com",
+    "vanguard.com",
+    "franklintempleton.com",
+    "valuepartners-group.com",
+    "amundi.com",
+    "abrdn.com",
+    "morganstanley.com",
+]

@@ -1,10 +1,12 @@
 from pathlib import Path
 import pandas as pd
-from config import SUPPORTED_IMAGE_EXTS
+from config import SUPPORTED_IMAGE_EXTS, SUPPORTED_PDF_EXTS, SUPPORTED_TEXT_EXTS
 
 
 def read_input_file(file_path: str) -> pd.DataFrame:
     path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f'Input file not found: {file_path}')
     suffix = path.suffix.lower()
     if suffix in {'.xlsx', '.xls'}:
         sheets = pd.read_excel(path, sheet_name=None, dtype=str)
@@ -16,9 +18,34 @@ def read_input_file(file_path: str) -> pd.DataFrame:
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     if suffix == '.csv':
         return pd.read_csv(path, dtype=str)
+    if suffix in SUPPORTED_TEXT_EXTS:
+        return read_text_file(path)
+    if suffix in SUPPORTED_PDF_EXTS:
+        return read_pdf_text(path)
     if suffix in SUPPORTED_IMAGE_EXTS:
         return read_image_ocr(path)
     raise ValueError(f'Unsupported file format: {suffix}')
+
+
+def read_text_file(path: Path) -> pd.DataFrame:
+    lines = [line.strip() for line in path.read_text(encoding='utf-8', errors='ignore').splitlines() if line.strip()]
+    return pd.DataFrame({'text': lines, 'source_file': path.name})
+
+
+def read_pdf_text(path: Path) -> pd.DataFrame:
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise ImportError('Install PDF dependencies first: pip install pdfplumber') from exc
+    rows = []
+    with pdfplumber.open(str(path)) as pdf:
+        for page_number, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ''
+            for line in text.splitlines():
+                line = line.strip()
+                if line:
+                    rows.append({'text': line, 'page': page_number, 'source_file': path.name})
+    return pd.DataFrame(rows)
 
 
 def read_image_ocr(path: Path) -> pd.DataFrame:

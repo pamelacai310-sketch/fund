@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import pandas as pd
 from input_reader import read_input_file
-from fund_parser import extract_funds, group_underlying_funds
+from fund_parser import build_fund_summary, extract_funds, group_underlying_funds
 from search_docs import search_latest_documents
-from social_search import search_social_discussions, read_social_comments_csv
+from social_search import filter_recent_social, search_social_discussions, read_social_comments_csv
 from analyzer import analyze_official_docs, analyze_social_comments
 from report_writer import write_report
 
@@ -29,6 +31,7 @@ def run_pipeline(
 
     print('步骤 3/6：归并底层基金和份额...')
     share_df, base_df = group_underlying_funds(funds_df)
+    summary_df = build_fund_summary(share_df, base_df)
     print(f'识别到份额数量：{len(share_df)}')
     print(f'识别到底层基金数量：{len(base_df)}')
 
@@ -45,9 +48,11 @@ def run_pipeline(
     if social_comments_csv:
         social_frames.append(read_social_comments_csv(social_comments_csv))
     social_df = pd.concat(social_frames, ignore_index=True) if social_frames else pd.DataFrame()
+    social_df = filter_recent_social(social_df)
     social_analysis_df = analyze_social_comments(social_df)
 
     output_path = write_report(
+        summary_df=summary_df,
         share_df=share_df,
         base_df=base_df,
         docs_df=docs_df,
