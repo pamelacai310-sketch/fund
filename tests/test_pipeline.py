@@ -6,7 +6,7 @@ import pandas as pd
 from analyzer import analyze_official_docs, analyze_social_comments
 from fund_parser import build_fund_summary, extract_funds, group_underlying_funds
 from search_docs import extract_document_date, score_document
-from social_search import filter_recent_social, read_social_comments_csv
+from social_search import build_company_search_units, filter_recent_social, read_social_comments_csv
 
 
 class FundPipelineTests(unittest.TestCase):
@@ -29,6 +29,26 @@ class FundPipelineTests(unittest.TestCase):
         self.assertEqual(len(base_df), 2)
         self.assertEqual(int(summary.iloc[0]['share_product_count']), 3)
         self.assertIn('测试亚洲债券人民币份额', summary.iloc[0]['fund_names'])
+        self.assertIn('未知基金公司', summary.iloc[0]['fund_companies'])
+
+    def test_company_search_units_group_by_fund_company(self):
+        raw = pd.DataFrame({
+            '基金代码': ['968000.OF', '968001.OF', '968040.OF'],
+            '基金名称': ['摩根亚洲总收益债券基金 累积', '摩根亚洲总收益债券基金 派息', '惠理价值基金'],
+            'Product name': [
+                'JPMorgan Asian Total Return Bond Fund RMB ACC',
+                'JPMorgan Asian Total Return Bond Fund RMB DIST',
+                'Value Partners Classic Fund P-CNY',
+            ],
+            'ISIN': ['HK0000259686', 'HK0000259694', 'HK0000264959'],
+        })
+        share_df, _ = group_underlying_funds(extract_funds(raw))
+        units = build_company_search_units(share_df)
+
+        self.assertEqual(set(units['fund_company']), {'摩根资产管理', '惠理集团'})
+        jpm = units[units['fund_company'].eq('摩根资产管理')].iloc[0]
+        self.assertIn('968000.OF', jpm['product_code'])
+        self.assertIn('JPMorgan', jpm['company_aliases'])
 
     def test_document_date_and_scoring_prefers_latest_official_monthly(self):
         doc_date, source = extract_document_date('Fund Monthly Report March 2026', 'https://manager.com/report.pdf')
@@ -71,13 +91,14 @@ class FundPipelineTests(unittest.TestCase):
     def test_social_csv_filters_old_comments_and_analyzes_pain_points(self):
         path = '/tmp/fund-social-test.csv'
         pd.DataFrame([
-            {'product_code': '968000.OF', 'platform': '小红书', 'user_text': '净值跌了但派息还行', 'publish_time': '2026-03-01'},
-            {'product_code': '968000.OF', 'platform': '微博', 'user_text': '老评论', 'publish_time': '2024-01-01'},
+            {'fund_company': '摩根资产管理', 'platform': '小红书', 'user_text': '净值跌了但派息还行', 'publish_time': '2026-03-01'},
+            {'fund_company': '摩根资产管理', 'platform': '微博', 'user_text': '老评论', 'publish_time': '2024-01-01'},
         ]).to_csv(path, index=False)
         social = filter_recent_social(read_social_comments_csv(path))
         analysis = analyze_social_comments(social)
 
         self.assertEqual(len(social), 1)
+        self.assertEqual(analysis.iloc[0]['fund_company'], '摩根资产管理')
         self.assertEqual(int(analysis.iloc[0]['recent_result_count']), 1)
         self.assertIn('回撤/亏损焦虑', analysis.iloc[0]['top_pain_points'])
 

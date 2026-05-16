@@ -12,10 +12,19 @@ from config import MAX_SOCIAL_RESULTS_PER_QUERY, SERPAPI_KEY, SOCIAL_PLATFORMS, 
 
 
 SOCIAL_COLUMNS = [
-    'product_code', 'base_fund_id', 'base_fund_name', 'platform', 'source_type',
-    'query', 'title', 'link', 'user_text', 'publish_time', 'is_recent',
-    'like_count', 'date_source',
+    'fund_company', 'company_aliases', 'product_code', 'base_fund_id',
+    'base_fund_name', 'platform', 'source_type', 'query', 'title', 'link',
+    'user_text', 'publish_time', 'is_recent', 'like_count', 'date_source',
 ]
+
+COMPANY_ALIASES = {
+    '摩根资产管理': ['摩根', '摩根资产管理', 'JPMorgan Asset Management', 'JPMorgan'],
+    '惠理集团': ['惠理', '惠理集团', 'Value Partners'],
+    '东方汇理资产管理': ['东方汇理', '东方汇理资产管理', 'Amundi'],
+    '汇丰资产管理': ['汇丰', '汇丰资产管理', 'HSBC Asset Management', 'HSBC'],
+    '百达资产管理': ['百达', '百达资产管理', 'Pictet'],
+    '东亚联丰投资': ['东亚联丰', '东亚联丰投资', 'BEA Union Investment', 'BEA Union'],
+}
 
 
 def recent_window(today: date | None = None) -> tuple[date, date]:
@@ -23,8 +32,9 @@ def recent_window(today: date | None = None) -> tuple[date, date]:
     return end - timedelta(days=SOCIAL_RECENT_DAYS), end
 
 
-def build_social_keywords(product_code: str, fund_name_cn: str, fund_name_en: str, base_name: str) -> list[str]:
-    values = [product_code, fund_name_cn, base_name, fund_name_en]
+def build_social_keywords(product_code: str, fund_name_cn: str, fund_name_en: str, base_name: str, fund_company: str = '') -> list[str]:
+    values = COMPANY_ALIASES.get(str(fund_company), [])
+    values += [fund_company, product_code, fund_name_cn, base_name, fund_name_en]
     out, seen = [], set()
     for value in values:
         value = str(value or '').strip()
@@ -45,7 +55,7 @@ def platform_site_filter(platform: str) -> str:
 
 
 def build_social_query(keyword: str, platform: str, since_date: date, until_date: date) -> str:
-    pain_words = '亏 OR 跌 OR 分红 OR 派息 OR 净值 OR 对冲 OR 收益 OR 买了 OR 怎么样 OR 体验'
+    pain_words = '基金 OR 投资 OR 亏 OR 跌 OR 分红 OR 派息 OR 净值 OR 对冲 OR 收益 OR 买了 OR 怎么样 OR 体验 OR 客服 OR 赎回 OR 申购'
     site = platform_site_filter(platform)
     return f'"{keyword}" ({pain_words}) ({site}) after:{since_date.isoformat()} before:{until_date.isoformat()}'
 
@@ -79,8 +89,11 @@ def parse_date(value: str) -> str:
         return ''
 
 
-def is_relevant_social_result(base_name: str, title: str, snippet: str) -> bool:
+def is_relevant_social_result(base_name: str, title: str, snippet: str, fund_company: str = '') -> bool:
     text = f'{title} {snippet}'.lower()
+    company_aliases = COMPANY_ALIASES.get(str(fund_company), [])
+    if company_aliases:
+        return any(alias.lower() in text for alias in company_aliases)
     tokens = [
         token.lower()
         for token in str(base_name).replace('-', ' ').replace('(', ' ').replace(')', ' ').split()
@@ -104,20 +117,33 @@ def search_social_discussions(share_df: pd.DataFrame, max_results_per_code: int 
     if not SERPAPI_KEY:
         return pd.DataFrame(columns=SOCIAL_COLUMNS)
     rows = []
-    search_df = build_social_search_units(share_df)
+    search_df = build_company_search_units(share_df)
     since_date, until_date = recent_window()
     for _, row in search_df.iterrows():
         product_code = row.get('product_code', '')
-        keywords = build_social_keywords(product_code, row.get('fund_name_cn', ''), row.get('fund_name_en', ''), row.get('base_fund_name', ''))
+        keywords = build_social_keywords(
+            product_code,
+            row.get('fund_name_cn', ''),
+            row.get('fund_name_en', ''),
+            row.get('base_fund_name', ''),
+            row.get('fund_company', ''),
+        )
         for platform in SOCIAL_PLATFORMS:
             for keyword in keywords:
                 query = build_social_query(keyword, platform, since_date, until_date)
                 for result in serpapi_search(query, max_results=max_results_per_code):
                     link = result.get('link', '')
-                    if not is_relevant_social_result(row.get('base_fund_name', ''), result.get('title', ''), result.get('snippet', '')):
+                    if not is_relevant_social_result(
+                        row.get('base_fund_name', ''),
+                        result.get('title', ''),
+                        result.get('snippet', ''),
+                        row.get('fund_company', ''),
+                    ):
                         continue
                     publish_time = parse_date(result.get('date', ''))
                     rows.append({
+                        'fund_company': row.get('fund_company', ''),
+                        'company_aliases': row.get('company_aliases', ''),
                         'product_code': product_code,
                         'base_fund_id': row.get('base_fund_id', ''),
                         'base_fund_name': row.get('base_fund_name', ''),
@@ -135,37 +161,48 @@ def search_social_discussions(share_df: pd.DataFrame, max_results_per_code: int 
                 time.sleep(0.2)
     if not rows:
         return pd.DataFrame(columns=SOCIAL_COLUMNS)
-    return pd.DataFrame(rows)[SOCIAL_COLUMNS].drop_duplicates(subset=['product_code', 'platform', 'link', 'user_text']).reset_index(drop=True)
+    return pd.DataFrame(rows)[SOCIAL_COLUMNS].drop_duplicates(subset=['fund_company', 'platform', 'link', 'user_text']).reset_index(drop=True)
 
 
-def build_social_search_units(share_df: pd.DataFrame) -> pd.DataFrame:
-    if share_df.empty or 'base_fund_id' not in share_df.columns:
+def build_company_search_units(share_df: pd.DataFrame) -> pd.DataFrame:
+    if share_df.empty or 'fund_company' not in share_df.columns:
         return share_df
     rows = []
-    for base_id, group in share_df.groupby('base_fund_id', dropna=False):
+    for fund_company, group in share_df.groupby('fund_company', dropna=False):
         first = group.iloc[0]
+        aliases = COMPANY_ALIASES.get(str(fund_company), [str(fund_company)])
         rows.append({
             'product_code': ', '.join(sorted(set(x for x in group.get('product_code', pd.Series(dtype=str)).astype(str) if x))),
-            'base_fund_id': base_id,
-            'base_fund_name': first.get('base_fund_name', ''),
+            'base_fund_id': ', '.join(sorted(set(x for x in group.get('base_fund_id', pd.Series(dtype=str)).astype(str) if x))),
+            'base_fund_name': ' | '.join(sorted(set(x for x in group.get('base_fund_name', pd.Series(dtype=str)).astype(str) if x)))[:500],
+            'fund_company': fund_company,
+            'company_aliases': ' | '.join(aliases),
             'fund_name_cn': first.get('fund_name_cn', ''),
             'fund_name_en': first.get('fund_name_en', ''),
         })
     return pd.DataFrame(rows)
 
 
+def build_social_search_units(share_df: pd.DataFrame) -> pd.DataFrame:
+    return build_company_search_units(share_df)
+
+
 def read_social_comments_csv(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, dtype=str)
-    required = ['product_code', 'platform', 'user_text']
+    required = ['platform', 'user_text']
     for col in required:
         if col not in df.columns:
             raise ValueError(f'评论 CSV 缺少必要列: {col}')
+    if 'product_code' not in df.columns and 'fund_company' not in df.columns and 'company' not in df.columns:
+        raise ValueError('评论 CSV 需要 product_code、fund_company 或 company 至少一列用于归属。')
     if 'url' in df.columns and 'link' not in df.columns:
         df['link'] = df['url']
     since_date, until_date = recent_window()
     for col in SOCIAL_COLUMNS:
         if col not in df.columns:
             df[col] = ''
+    if df['fund_company'].astype(str).str.strip().eq('').all() and 'company' in df.columns:
+        df['fund_company'] = df['company']
     df['source_type'] = df['source_type'].fillna('').replace('', 'user_exported_comment')
     df['publish_time'] = df['publish_time'].apply(parse_date)
     df['is_recent'] = df['publish_time'].apply(lambda value: is_recent_date(value, since_date, until_date) if value else '')

@@ -20,6 +20,6 @@ def write_report(
         base_df.to_excel(writer, sheet_name='底层基金统计', index=False)
         docs_df.to_excel(writer, sheet_name='官方资料搜索结果', index=False)
         official_analysis_df.to_excel(writer, sheet_name='官方资料分析', index=False)
-        social_df.to_excel(writer, sheet_name='社媒搜索结果', index=False)
-        social_analysis_df.to_excel(writer, sheet_name='社媒痛点卖点', index=False)
+        social_df.to_excel(writer, sheet_name='基金公司社媒搜索结果', index=False)
+        social_analysis_df.to_excel(writer, sheet_name='基金公司痛点卖点', index=False)
     return output_path

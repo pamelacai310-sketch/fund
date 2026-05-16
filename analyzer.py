@@ -156,31 +156,34 @@ def analyze_official_docs(base_df: pd.DataFrame, docs_df: pd.DataFrame) -> pd.Da
 def analyze_social_comments(social_df: pd.DataFrame) -> pd.DataFrame:
     if social_df.empty:
         return pd.DataFrame(columns=[
-            'product_code', 'social_result_count', 'recent_result_count', 'platforms',
-            'source_mix', 'top_pain_points', 'top_selling_points',
+            'fund_company', 'covered_product_codes', 'social_result_count',
+            'recent_result_count', 'platforms', 'source_mix', 'top_pain_points', 'top_selling_points',
             'investor_pain_analysis', 'content_selling_angle', 'sample_comments_or_snippets',
         ])
     df = social_df.copy()
     if 'user_text' not in df.columns:
         df['user_text'] = df.get('snippet', '')
+    if 'fund_company' not in df.columns:
+        df['fund_company'] = df.get('product_code', '')
     df['is_recent_bool'] = df.get('is_recent', '').astype(str).str.lower().isin(['true', '1'])
     rows = []
-    for product_code, g in df.groupby('product_code', dropna=False):
+    for fund_company, g in df.groupby('fund_company', dropna=False):
         texts = ' '.join(g['user_text'].fillna('').astype(str).tolist())
         pain_hits = count_keyword_groups(texts, PAIN_KEYWORDS)
         selling_hits = count_keyword_groups(texts, SELLING_POINT_KEYWORDS)
         top_pain = format_top_hits(pain_hits)
         top_selling = format_top_hits(selling_hits)
         rows.append({
-            'product_code': product_code,
+            'fund_company': fund_company,
+            'covered_product_codes': ', '.join(sorted(set(', '.join(g.get('product_code', pd.Series(dtype=str)).fillna('').astype(str)).split(', ')) - {''})),
             'social_result_count': len(g),
             'recent_result_count': int(g['is_recent_bool'].sum()) if 'is_recent_bool' in g else '',
             'platforms': ', '.join(sorted(set(g.get('platform', pd.Series(dtype=str)).astype(str)))),
             'source_mix': ', '.join(sorted(set(g.get('source_type', pd.Series(dtype=str)).astype(str)))),
             'top_pain_points': top_pain,
             'top_selling_points': top_selling,
-            'investor_pain_analysis': f"主要痛点集中在：{top_pain}。若样本来自公开搜索摘要，需用导出评论复核情绪强度。",
-            'content_selling_angle': f"内容卖点可围绕：{top_selling}。传播时需同时提示对应风险。",
+            'investor_pain_analysis': f"{fund_company} 近半年公开评论主要痛点集中在：{top_pain}。若样本来自公开搜索摘要，需用导出评论复核情绪强度。",
+            'content_selling_angle': f"{fund_company} 内容卖点可围绕：{top_selling}。传播时需同时提示对应风险。",
             'sample_comments_or_snippets': ' | '.join(g['user_text'].fillna('').astype(str).head(5)),
         })
     return pd.DataFrame(rows)
