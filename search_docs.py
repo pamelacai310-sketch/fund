@@ -219,6 +219,8 @@ def identifiers_for_fund(row: pd.Series) -> list[str]:
 
 
 def search_latest_documents(base_df: pd.DataFrame, max_results_per_fund: int = MAX_DOC_RESULTS_PER_FUND) -> pd.DataFrame:
+    if not SERPAPI_KEY and not TAVILY_API_KEY:
+        return pd.DataFrame(columns=DOC_COLUMNS)
     rows = []
     for _, fund in base_df.iterrows():
         query = build_doc_query(fund['base_fund_name'], identifiers_for_fund(fund))

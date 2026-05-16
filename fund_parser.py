@@ -24,10 +24,19 @@ SHARE_CLASS_PATTERNS = [
     r"\bHDG\b", r"\bHEDGED\b",
     r"\bACC\b", r"\bMDIST\b", r"\bDIST\b", r"\bDIS\.\b", r"\bACC\.\b",
     r"\bBC\b", r"\bBCH\b", r"\bBM2\b", r"\bBM3H\b", r"\bBM30\b", r"\bBCO\b",
+    r"\bHM[-\s]?(CNY|RMB)?\b", r"\bM[-\s]?(CNY|RMB)?\b", r"\bP[-\s]?(CNY|RMB)?\b",
     r"\bP[-\s]?CNY\b", r"\bM[-\s]?CNY\b", r"\bCLASS\s+[A-Z0-9]+\b",
 ]
 CN_SHARE_CLASS_WORDS = ['人民币对冲', '人民币', '对冲', '累计', '累积', '派息', '每月派息', '月派息', '分派', '美元', '港元', '份额']
 PLACEHOLDER_VALUES = {'', 'nan', 'none', 'null', '-', '--', 'n/a', 'na'}
+FUND_COMPANY_RULES = [
+    ('摩根资产管理', ['JPMorgan', '摩根']),
+    ('惠理集团', ['Value Partners', '惠理']),
+    ('东方汇理资产管理', ['Amundi', '东方汇理']),
+    ('汇丰资产管理', ['HSBC', '汇丰']),
+    ('百达资产管理', ['Pictet', '百达']),
+    ('东亚联丰投资', ['BEA Union', '东亚联丰']),
+]
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -119,16 +128,29 @@ def finalize_funds(df: pd.DataFrame) -> pd.DataFrame:
 def normalize_base_name(name: str) -> str:
     s = re.sub(r"\s+", ' ', str(name).strip())
     s = re.sub(r"\s*[-–—]\s*", ' - ', s)
+    s = re.sub(r"\(\s*hedged\s*\)", '', s, flags=re.I)
     for pat in SHARE_CLASS_PATTERNS:
         s = re.sub(pat, '', s, flags=re.I)
     for word in CN_SHARE_CLASS_WORDS:
         s = s.replace(word, '')
-    return re.sub(r"\s+", ' ', re.sub(r"[-–—_/]+$", '', s).strip()).strip()
+    s = re.sub(r"\(\s*\)", '', s)
+    s = re.sub(r"\s+", ' ', s)
+    s = re.sub(r"\s*[-–—_/]+\s*$", '', s)
+    s = re.sub(r"[\s.\-–—_/]+$", '', s)
+    return s.strip()
 
 
 def derive_base_fund_name(row: pd.Series) -> str:
     name = str(row.get('fund_name_en') or row.get('fund_name_cn') or row.get('morningstar_code') or row.get('product_code') or '').strip()
     return normalize_base_name(name)
+
+
+def infer_fund_company(row: pd.Series) -> str:
+    text = ' '.join(str(row.get(col, '') or '') for col in ['fund_name_cn', 'fund_name_en', 'base_fund_name'])
+    for company, keywords in FUND_COMPANY_RULES:
+        if any(keyword.lower() in text.lower() for keyword in keywords):
+            return company
+    return '未知基金公司'
 
 
 def build_fund_summary(share_df: pd.DataFrame, base_df: pd.DataFrame) -> pd.DataFrame:
@@ -143,6 +165,7 @@ def build_fund_summary(share_df: pd.DataFrame, base_df: pd.DataFrame) -> pd.Data
         'fund_names': ' | '.join(sorted(set(names))),
         'product_codes': ', '.join(sorted(set(x for x in share_df.get('product_code', pd.Series(dtype=str)).astype(str) if x))),
         'isins': ', '.join(sorted(set(x for x in share_df.get('isin', pd.Series(dtype=str)).astype(str) if x))),
+        'fund_companies': ' | '.join(sorted(set(x for x in share_df.get('fund_company', pd.Series(dtype=str)).astype(str) if x))),
     }])
 
 
@@ -167,6 +190,7 @@ def group_underlying_funds(funds: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
         if col not in df.columns:
             df[col] = ''
     df['base_fund_name'] = df.apply(derive_base_fund_name, axis=1)
+    df['fund_company'] = df.apply(infer_fund_company, axis=1)
     df['base_fund_id'] = assign_base_ids(df['base_fund_name'].tolist())
     grouped = []
     for base_id, g in df.groupby('base_fund_id'):
@@ -179,5 +203,6 @@ def group_underlying_funds(funds: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
             'morningstar_codes': ', '.join(sorted(set(x for x in g['morningstar_code'].astype(str) if x))),
             'fund_names_cn': ' | '.join(sorted(set(x for x in g['fund_name_cn'].astype(str) if x and x != 'nan'))),
             'fund_names_en': ' | '.join(sorted(set(x for x in g['fund_name_en'].astype(str) if x and x != 'nan'))),
+            'fund_company': ' | '.join(sorted(set(x for x in g['fund_company'].astype(str) if x and x != 'nan'))),
         })
     return df.reset_index(drop=True), pd.DataFrame(grouped).sort_values(['base_fund_name']).reset_index(drop=True)
