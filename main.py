@@ -5,9 +5,11 @@ import pandas as pd
 from input_reader import read_input_file
 from fund_parser import build_fund_summary, extract_funds, group_underlying_funds
 from search_docs import search_latest_documents
-from social_search import filter_recent_social, search_social_discussions, read_social_comments_csv
+from social_search import search_social_discussions, read_social_comments_csv
 from analyzer import analyze_official_docs, analyze_social_comments
+from mention_pipeline import build_audit_summary, build_mentions_from_social_results, build_review_queue
 from report_writer import write_report
+from window import default_window
 
 
 def run_pipeline(
@@ -48,8 +50,11 @@ def run_pipeline(
     if social_comments_csv:
         social_frames.append(read_social_comments_csv(social_comments_csv))
     social_df = pd.concat(social_frames, ignore_index=True) if social_frames else pd.DataFrame()
-    social_df = filter_recent_social(social_df)
-    social_analysis_df = analyze_social_comments(social_df)
+    social_window = default_window()
+    mention_df = build_mentions_from_social_results(social_df, social_window)
+    social_analysis_df = analyze_social_comments(mention_df)
+    review_queue_df = build_review_queue(mention_df)
+    audit_df = build_audit_summary(social_df, mention_df, social_window)
 
     output_path = write_report(
         summary_df=summary_df,
@@ -58,7 +63,10 @@ def run_pipeline(
         docs_df=docs_df,
         official_analysis_df=official_analysis_df,
         social_df=social_df,
+        mention_df=mention_df,
         social_analysis_df=social_analysis_df,
+        audit_df=audit_df,
+        review_queue_df=review_queue_df,
     )
     print(f'完成，报告已输出：{output_path}')
     return output_path

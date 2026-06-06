@@ -1,12 +1,25 @@
+import tempfile
 import unittest
 from datetime import date
+from pathlib import Path
 
+import openpyxl
 import pandas as pd
 
 from analyzer import analyze_official_docs, analyze_social_comments
 from fund_parser import build_fund_summary, extract_funds, group_underlying_funds
+from mention_pipeline import (
+    build_audit_summary,
+    build_content_hash,
+    build_mentions_from_social_results,
+    build_review_queue,
+    redact_pii,
+)
+from report_writer import write_report
+from schemas import FundCompanyMention, SourceRef, SourceType
 from search_docs import extract_document_date, score_document
 from social_search import build_company_search_units, filter_recent_social, read_social_comments_csv
+from window import default_window, subtract_months
 
 
 class FundPipelineTests(unittest.TestCase):
@@ -95,12 +108,114 @@ class FundPipelineTests(unittest.TestCase):
             {'fund_company': '摩根资产管理', 'platform': '微博', 'user_text': '老评论', 'publish_time': '2024-01-01'},
         ]).to_csv(path, index=False)
         social = filter_recent_social(read_social_comments_csv(path))
-        analysis = analyze_social_comments(social)
+        mentions = build_mentions_from_social_results(social, window=(date(2025, 12, 6), date(2026, 6, 6)))
+        analysis = analyze_social_comments(mentions)
 
         self.assertEqual(len(social), 1)
         self.assertEqual(analysis.iloc[0]['fund_company'], '摩根资产管理')
-        self.assertEqual(int(analysis.iloc[0]['recent_result_count']), 1)
-        self.assertIn('回撤/亏损焦虑', analysis.iloc[0]['top_pain_points'])
+        self.assertEqual(int(analysis.iloc[0]['valid_comment_count']), 1)
+        self.assertIn('亏损/回撤', analysis.iloc[0]['top_pain_aspects'])
+
+    def test_window_uses_natural_months(self):
+        self.assertEqual(subtract_months(date(2026, 6, 6), 6), date(2025, 12, 6))
+        self.assertEqual(default_window(today=date(2026, 6, 6)), (date(2025, 12, 6), date(2026, 6, 6)))
+        self.assertEqual(subtract_months(date(2026, 3, 31), 1), date(2026, 2, 28))
+
+    def test_fund_company_mention_schema_validates_required_and_enum_fields(self):
+        with self.assertRaises(ValueError):
+            FundCompanyMention(id_hash='', source=SourceRef(platform='微博', source_type=SourceType.SOCIAL))
+        with self.assertRaises(ValueError):
+            SourceRef(platform='微博', source_type='invalid_source')
+
+    def test_mentions_redact_hash_dedupe_and_flag_review(self):
+        redacted, changed = redact_pii('我买了摩根基金，电话13800138000，净值跌了')
+        self.assertTrue(changed)
+        self.assertNotIn('13800138000', redacted)
+
+        h1 = build_content_hash('小红书', 'https://xhslink.com/a', redacted)
+        h2 = build_content_hash('小红书', 'https://xhslink.com/a', redacted)
+        self.assertEqual(h1, h2)
+
+        social = pd.DataFrame([
+            {
+                'fund_company': '摩根资产管理',
+                'platform': '小红书',
+                'source_type': 'user_exported_comment',
+                'link': 'https://xhslink.com/a',
+                'user_text': '我买了摩根基金，电话13800138000，净值跌了',
+                'publish_time': '2026-03-01',
+                'product_code': '968000.OF',
+                'base_fund_name': '摩根亚洲总收益债券基金',
+            },
+            {
+                'fund_company': '摩根资产管理',
+                'platform': '小红书',
+                'source_type': 'user_exported_comment',
+                'link': 'https://xhslink.com/a',
+                'user_text': '我买了摩根基金，电话13800138000，净值跌了',
+                'publish_time': '2026-03-01',
+                'product_code': '968000.OF',
+                'base_fund_name': '摩根亚洲总收益债券基金',
+            },
+            {
+                'fund_company': '摩根资产管理',
+                'platform': '抖音',
+                'source_type': 'public_search_result',
+                'link': 'https://www.douyin.com/search/a',
+                'user_text': '摩根基金怎么样',
+                'publish_time': '',
+            },
+        ])
+        mentions = build_mentions_from_social_results(social, window=(date(2025, 12, 6), date(2026, 6, 6)))
+        self.assertEqual(len(mentions), 3)
+        self.assertEqual(mentions.iloc[0]['duplicate_of'], '')
+        self.assertEqual(mentions.iloc[1]['duplicate_of'], mentions.iloc[0]['id_hash'])
+        self.assertIn('pii', mentions.iloc[0]['risk_flags'])
+        self.assertIn('search_result_only', mentions.iloc[2]['risk_flags'])
+        self.assertIn('low_confidence_date', mentions.iloc[2]['risk_flags'])
+
+        review = build_review_queue(mentions)
+        self.assertEqual(len(review), 1)
+        audit = build_audit_summary(social, mentions, window=(date(2025, 12, 6), date(2026, 6, 6)))
+        self.assertIn('deduped_comment_count', set(audit['metric']))
+
+    def test_stale_comments_are_flagged_not_silently_dropped(self):
+        social = pd.DataFrame([
+            {
+                'fund_company': '惠理集团',
+                'platform': '微博',
+                'source_type': 'social',
+                'link': 'https://weibo.com/old',
+                'user_text': '以前买过，回撤比较大',
+                'publish_time': '2024-01-01',
+            },
+        ])
+        mentions = build_mentions_from_social_results(social, window=(date(2025, 12, 6), date(2026, 6, 6)))
+        self.assertEqual(len(mentions), 1)
+        self.assertIn('stale', mentions.iloc[0]['risk_flags'])
+        analysis = analyze_social_comments(mentions)
+        self.assertEqual(float(analysis.iloc[0]['recent_hit_rate']), 0)
+
+    def test_report_contains_audit_and_standardized_sheets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_name = Path(tmpdir, 'report.xlsx').name
+            output_path = write_report(
+                summary_df=pd.DataFrame([{'a': 1}]),
+                share_df=pd.DataFrame([{'a': 1}]),
+                base_df=pd.DataFrame([{'a': 1}]),
+                docs_df=pd.DataFrame([{'a': 1}]),
+                official_analysis_df=pd.DataFrame([{'a': 1}]),
+                social_df=pd.DataFrame([{'a': 1}]),
+                mention_df=pd.DataFrame([{'id_hash': 'abc'}]),
+                social_analysis_df=pd.DataFrame([{'fund_company': '摩根资产管理'}]),
+                audit_df=pd.DataFrame([{'metric': 'window', 'value': '2025-12-06 至 2026-06-06'}]),
+                review_queue_df=pd.DataFrame([{'id_hash': 'abc'}]),
+                output_name=output_name,
+            )
+            wb = openpyxl.load_workbook(output_path)
+            self.assertIn('基金公司评论标准记录', wb.sheetnames)
+            self.assertIn('采集审计摘要', wb.sheetnames)
+            self.assertIn('人工复核队列', wb.sheetnames)
 
 
 if __name__ == '__main__':

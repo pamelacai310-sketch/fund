@@ -3,21 +3,25 @@ import re
 import pandas as pd
 
 PAIN_KEYWORDS = {
-    '回撤/亏损焦虑': ['亏', '亏损', '跌', '大跌', '回撤', '浮亏', '净值跌', '套住'],
-    '分红/派息疑惑': ['分红', '派息', '除息', '分派', '派了', '现金流', '红利'],
-    '收益不及预期': ['收益低', '没赚钱', '不涨', '跑输', '收益不行', '表现差'],
-    '汇率/对冲困惑': ['汇率', '人民币', '美元', '对冲', '汇损', '汇兑'],
-    '风险认知不足': ['债基也会亏', '稳健也亏', '不是低风险', '风险', '暴雷', '违约'],
-    '流动性/购买问题': ['怎么买', '哪里买', '赎回', '申购', '限购', '费率', '手续费'],
+    '亏损/回撤': ['亏', '亏损', '跌', '大跌', '回撤', '浮亏', '净值跌', '套住', 'loss_drawdown'],
+    '分红误解': ['分红', '派息', '除息', '分派', '派了', '现金流', '红利', 'dividend_misunderstanding'],
+    '净值波动': ['净值', '波动', 'nav_volatility'],
+    '汇率/人民币对冲': ['汇率', '人民币', '美元', '对冲', '汇损', '汇兑', 'fx_or_rmb_hedging'],
+    '高收益债信用风险': ['高收益债', '信用', '债基也会亏', '稳健也亏', '风险', '暴雷', '违约', 'high_yield_credit_risk'],
+    '港股/亚洲市场波动': ['港股', '香港', '亚洲', '亚太', 'hk_asia_market_volatility'],
+    '赎回/申购/费率': ['怎么买', '哪里买', '赎回', '申购', '限购', '费率', '手续费', 'subscription_redemption_fee'],
+    '平台客服/信息披露': ['客服', '披露', '看不懂', '资料', '月报', 'service_or_disclosure'],
 }
 
 SELLING_POINT_KEYWORDS = {
-    '高股息/高派息': ['高股息', '高息', '分红', '派息', '现金流', '红利'],
-    '稳健/低波动': ['稳健', '低波动', '防守', '配置', '平衡', '低风险'],
-    '低估值修复': ['低估', '估值修复', '便宜', '反弹', '港股'],
-    '降息受益': ['降息', '债券', '利率下行', '久期'],
-    '亚洲/中国增长': ['亚洲', '中国', '成长', '科技', '创新', 'AI'],
-    '全球分散': ['全球', '分散', '多资产', '一站式'],
+    '高派息/现金流': ['高股息', '高息', '分红', '派息', '现金流', '红利', 'high_distribution_cashflow'],
+    '稳健配置': ['稳健', '低波动', '防守', '配置', '平衡', '低风险', 'stable_allocation'],
+    '降息受益': ['降息', '债券', '利率下行', '久期', 'rate_cut_beneficiary'],
+    '亚洲增长': ['亚洲', '中国', '成长', '科技', '创新', 'AI', 'asia_growth'],
+    '低估值修复': ['低估', '估值修复', '便宜', '反弹', '港股', 'valuation_recovery'],
+    '多资产分散': ['全球', '分散', '多资产', '一站式', 'multi_asset_diversification'],
+    '人民币对冲': ['人民币对冲', 'CNY HDG', 'RMB hedged', 'rmb_hedging'],
+    '品牌信任': ['信任', '品牌', 'brand_trust'],
 }
 
 CATEGORY_RULES = {
@@ -156,34 +160,58 @@ def analyze_official_docs(base_df: pd.DataFrame, docs_df: pd.DataFrame) -> pd.Da
 def analyze_social_comments(social_df: pd.DataFrame) -> pd.DataFrame:
     if social_df.empty:
         return pd.DataFrame(columns=[
-            'fund_company', 'covered_product_codes', 'social_result_count',
-            'recent_result_count', 'platforms', 'source_mix', 'top_pain_points', 'top_selling_points',
-            'investor_pain_analysis', 'content_selling_angle', 'sample_comments_or_snippets',
+            'fund_company', 'covered_product_codes', 'valid_comment_count',
+            'deduped_comment_count', 'recent_hit_rate', 'platform_counts', 'source_mix',
+            'low_confidence_count', 'manual_review_count', 'top_pain_aspects',
+            'top_selling_aspects', 'investor_pain_analysis', 'content_selling_angle',
+            'sample_evidence',
         ])
     df = social_df.copy()
-    if 'user_text' not in df.columns:
-        df['user_text'] = df.get('snippet', '')
+    if 'redacted_text' not in df.columns:
+        df['redacted_text'] = df.get('user_text', df.get('snippet', ''))
     if 'fund_company' not in df.columns:
         df['fund_company'] = df.get('product_code', '')
-    df['is_recent_bool'] = df.get('is_recent', '').astype(str).str.lower().isin(['true', '1'])
+    if 'duplicate_of' not in df.columns:
+        df['duplicate_of'] = ''
+    if 'risk_flags' not in df.columns:
+        df['risk_flags'] = ''
+    if 'aspects' not in df.columns:
+        df['aspects'] = ''
     rows = []
     for fund_company, g in df.groupby('fund_company', dropna=False):
-        texts = ' '.join(g['user_text'].fillna('').astype(str).tolist())
+        unique = g[g['duplicate_of'].fillna('').astype(str).eq('')]
+        valid = unique[~unique['risk_flags'].astype(str).str.contains('irrelevant')]
+        texts = ' '.join(
+            (valid['redacted_text'].fillna('').astype(str) + ' ' + valid['aspects'].fillna('').astype(str)).tolist()
+        )
         pain_hits = count_keyword_groups(texts, PAIN_KEYWORDS)
         selling_hits = count_keyword_groups(texts, SELLING_POINT_KEYWORDS)
         top_pain = format_top_hits(pain_hits)
         top_selling = format_top_hits(selling_hits)
+        flags = g['risk_flags'].fillna('').astype(str)
+        recent_base = valid[
+            ~valid['risk_flags'].astype(str).str.contains('stale')
+            & ~valid['risk_flags'].astype(str).str.contains('low_confidence_date')
+        ]
+        platform_counts = valid['platform'].fillna('').astype(str).value_counts()
+        sample_parts = []
+        for _, row in valid.head(5).iterrows():
+            url = row.get('url') or row.get('link') or ''
+            sample_parts.append(f"{row.get('platform', '')}:{row.get('redacted_text', '')[:80]}（{url}）")
         rows.append({
             'fund_company': fund_company,
-            'covered_product_codes': ', '.join(sorted(set(', '.join(g.get('product_code', pd.Series(dtype=str)).fillna('').astype(str)).split(', ')) - {''})),
-            'social_result_count': len(g),
-            'recent_result_count': int(g['is_recent_bool'].sum()) if 'is_recent_bool' in g else '',
-            'platforms': ', '.join(sorted(set(g.get('platform', pd.Series(dtype=str)).astype(str)))),
+            'covered_product_codes': ', '.join(sorted(set('；'.join(g.get('product_codes', g.get('product_code', pd.Series(dtype=str))).fillna('').astype(str)).replace(', ', '；').split('；')) - {''})),
+            'valid_comment_count': len(valid),
+            'deduped_comment_count': len(unique),
+            'recent_hit_rate': round(len(recent_base) / len(unique), 4) if len(unique) else 0,
+            'platform_counts': '；'.join(f'{k}:{v}' for k, v in platform_counts.items() if k),
             'source_mix': ', '.join(sorted(set(g.get('source_type', pd.Series(dtype=str)).astype(str)))),
-            'top_pain_points': top_pain,
-            'top_selling_points': top_selling,
-            'investor_pain_analysis': f"{fund_company} 近半年公开评论主要痛点集中在：{top_pain}。若样本来自公开搜索摘要，需用导出评论复核情绪强度。",
-            'content_selling_angle': f"{fund_company} 内容卖点可围绕：{top_selling}。传播时需同时提示对应风险。",
-            'sample_comments_or_snippets': ' | '.join(g['user_text'].fillna('').astype(str).head(5)),
+            'low_confidence_count': int(flags.str.contains('low_confidence_date').sum()),
+            'manual_review_count': int(flags.str.contains('manual_review|search_result_only').sum()),
+            'top_pain_aspects': top_pain,
+            'top_selling_aspects': top_selling,
+            'investor_pain_analysis': f"{fund_company} 去重后有效样本 {len(valid)} 条，主要痛点集中在：{top_pain}。搜索结果摘要和低置信日期样本需优先人工复核。",
+            'content_selling_angle': f"{fund_company} 内容卖点可围绕：{top_selling}。传播时需同时提示回撤、汇率、信用和流动性等对应风险。",
+            'sample_evidence': ' | '.join(sample_parts),
         })
     return pd.DataFrame(rows)

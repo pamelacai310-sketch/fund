@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timedelta
+from datetime import date
 from urllib.parse import urlparse
 
 import pandas as pd
 import requests
 from dateutil import parser as date_parser
 
-from config import MAX_SOCIAL_RESULTS_PER_QUERY, SERPAPI_KEY, SOCIAL_PLATFORMS, SOCIAL_RECENT_DAYS
+from config import MAX_SOCIAL_RESULTS_PER_QUERY, SERPAPI_KEY, SOCIAL_PLATFORMS
+from window import default_window
 
 
 SOCIAL_COLUMNS = [
@@ -28,8 +29,7 @@ COMPANY_ALIASES = {
 
 
 def recent_window(today: date | None = None) -> tuple[date, date]:
-    end = today or date.today()
-    return end - timedelta(days=SOCIAL_RECENT_DAYS), end
+    return default_window(today=today)
 
 
 def build_social_keywords(product_code: str, fund_name_cn: str, fund_name_en: str, base_name: str, fund_company: str = '') -> list[str]:
