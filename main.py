@@ -7,7 +7,9 @@ from fund_parser import build_fund_summary, extract_funds, group_underlying_fund
 from search_docs import search_latest_documents
 from social_search import search_social_discussions, read_social_comments_csv
 from analyzer import analyze_official_docs, analyze_social_comments
+from master_skills import build_master_skill_outputs
 from mention_pipeline import build_audit_summary, build_mentions_from_social_results, build_review_queue
+from product_master import build_product_master_data
 from report_writer import write_report
 from window import default_window
 
@@ -42,6 +44,7 @@ def run_pipeline(
 
     print('步骤 5/6：分析官方资料和同类产品...')
     official_analysis_df = analyze_official_docs(base_df, docs_df)
+    product_master_df = build_product_master_data(base_df, share_df, docs_df, official_analysis_df)
 
     print('步骤 6/6：搜索和分析社媒评论...')
     social_frames = []
@@ -55,6 +58,12 @@ def run_pipeline(
     social_analysis_df = analyze_social_comments(mention_df)
     review_queue_df = build_review_queue(mention_df)
     audit_df = build_audit_summary(social_df, mention_df, social_window)
+    master_outputs = build_master_skill_outputs(
+        base_df=base_df,
+        official_analysis_df=official_analysis_df,
+        docs_df=docs_df,
+        social_analysis_df=social_analysis_df,
+    )
 
     output_path = write_report(
         summary_df=summary_df,
@@ -62,11 +71,13 @@ def run_pipeline(
         base_df=base_df,
         docs_df=docs_df,
         official_analysis_df=official_analysis_df,
+        product_master_df=product_master_df,
         social_df=social_df,
         mention_df=mention_df,
         social_analysis_df=social_analysis_df,
         audit_df=audit_df,
         review_queue_df=review_queue_df,
+        **master_outputs,
     )
     print(f'完成，报告已输出：{output_path}')
     return output_path

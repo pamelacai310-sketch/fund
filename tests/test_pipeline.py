@@ -8,6 +8,7 @@ import pandas as pd
 
 from analyzer import analyze_official_docs, analyze_social_comments
 from fund_parser import build_fund_summary, extract_funds, group_underlying_funds
+from master_skills import build_master_skill_catalog, build_master_skill_outputs
 from mention_pipeline import (
     build_audit_summary,
     build_content_hash,
@@ -15,6 +16,7 @@ from mention_pipeline import (
     build_review_queue,
     redact_pii,
 )
+from product_master import build_product_master_data
 from report_writer import write_report
 from schemas import FundCompanyMention, SourceRef, SourceType
 from search_docs import extract_document_date, score_document
@@ -205,17 +207,154 @@ class FundPipelineTests(unittest.TestCase):
                 base_df=pd.DataFrame([{'a': 1}]),
                 docs_df=pd.DataFrame([{'a': 1}]),
                 official_analysis_df=pd.DataFrame([{'a': 1}]),
+                product_master_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
                 social_df=pd.DataFrame([{'a': 1}]),
                 mention_df=pd.DataFrame([{'id_hash': 'abc'}]),
                 social_analysis_df=pd.DataFrame([{'fund_company': '摩根资产管理'}]),
                 audit_df=pd.DataFrame([{'metric': 'window', 'value': '2025-12-06 至 2026-06-06'}]),
                 review_queue_df=pd.DataFrame([{'id_hash': 'abc'}]),
+                skill_catalog_df=pd.DataFrame([{'skill_id': 'fund-mechanism-analyzer'}]),
+                mechanism_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                pain_map_df=pd.DataFrame([{'investor_pain': '亏损/回撤'}]),
+                market_radar_df=pd.DataFrame([{'next_month_narrative': '降息受益'}]),
+                evidence_audit_df=pd.DataFrame([{'audit_decision': '可作为初步定位'}]),
                 output_name=output_name,
             )
             wb = openpyxl.load_workbook(output_path)
             self.assertIn('基金公司评论标准记录', wb.sheetnames)
+            self.assertIn('基金产品主数据', wb.sheetnames)
             self.assertIn('采集审计摘要', wb.sheetnames)
             self.assertIn('人工复核队列', wb.sheetnames)
+            self.assertIn('大师Skill配置', wb.sheetnames)
+            self.assertIn('产品机制穿透', wb.sheetnames)
+            self.assertIn('痛点机制映射', wb.sheetnames)
+            self.assertIn('下月卖点雷达', wb.sheetnames)
+            self.assertIn('反证审计', wb.sheetnames)
+
+    def test_master_skill_outputs_configure_fund_analyst_capabilities(self):
+        catalog = build_master_skill_catalog()
+        self.assertIn('fund-peer-performance-underwriter', set(catalog['skill_id']))
+        self.assertIn('P0', set(catalog['priority']))
+
+        base_df = pd.DataFrame([
+            {
+                'base_fund_id': 'FUND_0001',
+                'base_fund_name': 'ABC Asian Total Return Bond Fund',
+                'fund_company': '摩根资产管理',
+            },
+            {
+                'base_fund_id': 'FUND_0002',
+                'base_fund_name': 'XYZ Asian Dividend Equity Fund',
+                'fund_company': '摩根资产管理',
+            },
+        ])
+        official = pd.DataFrame([
+            {'base_fund_id': 'FUND_0001', 'category': '亚洲债券'},
+            {'base_fund_id': 'FUND_0002', 'category': '亚洲股息/高息股票'},
+        ])
+        docs = pd.DataFrame([
+            {'base_fund_id': 'FUND_0001', 'title': 'Factsheet May 2026'},
+        ])
+        social = pd.DataFrame([
+            {
+                'fund_company': '摩根资产管理',
+                'valid_comment_count': 3,
+                'top_pain_aspects': '亏损/回撤(2)；分红误解(1)',
+                'top_selling_aspects': '高派息/现金流(2)',
+            }
+        ])
+        outputs = build_master_skill_outputs(base_df, official, docs, social)
+
+        mechanism = outputs['mechanism_df']
+        self.assertIn('票息收入', mechanism[mechanism['base_fund_id'].eq('FUND_0001')].iloc[0]['return_sources'])
+        self.assertIn('历史净值', mechanism.iloc[0]['missing_evidence'])
+
+        pain_map = outputs['pain_map_df']
+        self.assertIn('不得把痛点直接包装成卖点', pain_map.iloc[0]['must_not_claim'])
+
+        radar = outputs['market_radar_df']
+        self.assertIn('降息受益', set(radar['next_month_narrative']))
+        self.assertIn('高派息/现金流', set(radar['next_month_narrative']))
+
+        audit = outputs['evidence_audit_df']
+        self.assertIn('官方/第三方资料', audit[audit['base_fund_id'].eq('FUND_0001')].iloc[0]['supporting_evidence'])
+        self.assertIn('不可作为最终推荐', audit.iloc[0]['audit_decision'])
+
+    def test_product_master_data_extracts_official_structured_fields(self):
+        base_df = pd.DataFrame([{
+            'base_fund_id': 'FUND_0001',
+            'base_fund_name': 'ABC Asian Total Return Bond Fund',
+            'fund_company': '摩根资产管理',
+            'share_count': 2,
+            'product_codes': '968000.OF, 968001.OF',
+            'isins': 'HK0000000001',
+            'morningstar_codes': 'FS00000001',
+            'fund_names_cn': 'ABC 亚洲债券基金',
+            'fund_names_en': 'ABC Asian Total Return Bond Fund CNY HDG ACC',
+        }])
+        docs_df = pd.DataFrame([
+            {
+                'base_fund_id': 'FUND_0001',
+                'doc_type_guess': 'factsheet',
+                'title': 'ABC Fund Factsheet May 2026',
+                'link': 'https://example.com/factsheet.pdf',
+                'document_date': '2026-05-01',
+                'is_latest_candidate': True,
+                'relevance_score': 110,
+                'freshness_score': 90,
+                'snippet': 'Risk indicator 4 Management fee 1.20%',
+                'text_excerpt': '''
+Investment objective: The Fund aims to provide income and capital growth from Asian bonds.
+Benchmark: J.P. Morgan Asia Credit Index
+Base currency: USD
+Management fee: 1.20%
+Ongoing charges figure: 1.55%
+Subscription fee: 3.00%
+Redemption fee: 0.50%
+SRI: 4 out of 7
+Top holdings
+Tencent 5.20%
+HSBC 4.10%
+Asset allocation
+Bonds 82.00%
+Cash 6.00%
+Average credit rating: BBB+
+Duration: 4.6 years
+Yield to maturity: 5.80%
+Distribution yield: 4.50%
+Maximum drawdown: -8.20%
+Dealing frequency: Daily
+Settlement period: T+3
+Redemption: Daily redemption with normal settlement.
+''',
+            },
+            {
+                'base_fund_id': 'FUND_0001',
+                'doc_type_guess': 'kfs',
+                'title': 'ABC Product Key Facts',
+                'link': 'https://example.com/kfs.pdf',
+                'document_date': '2026-05-01',
+                'is_latest_candidate': False,
+                'relevance_score': 100,
+                'freshness_score': 80,
+                'snippet': '',
+                'text_excerpt': '',
+            },
+        ])
+        official = pd.DataFrame([{'base_fund_id': 'FUND_0001', 'category': '亚洲债券'}])
+        master = build_product_master_data(base_df, pd.DataFrame(), docs_df, official)
+        row = master.iloc[0]
+
+        self.assertEqual(row['latest_factsheet_link'], 'https://example.com/factsheet.pdf')
+        self.assertEqual(row['latest_kid_link'], 'https://example.com/kfs.pdf')
+        self.assertEqual(row['management_fee'], '1.20%')
+        self.assertEqual(row['ongoing_charges'], '1.55%')
+        self.assertEqual(row['risk_level'], '4')
+        self.assertIn('Tencent', row['top_holdings'])
+        self.assertIn('Bonds', row['asset_allocation'])
+        self.assertEqual(row['max_drawdown'], '-8.20%')
+        self.assertIn('Daily', row['liquidity_terms'])
+        self.assertGreaterEqual(int(row['master_data_quality_score']), 80)
 
 
 if __name__ == '__main__':
