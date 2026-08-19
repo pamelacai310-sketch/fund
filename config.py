@@ -32,6 +32,7 @@ DOC_KEYWORDS = [
 SOCIAL_PLATFORMS = ["小红书", "微博", "抖音"]
 SOCIAL_RECENT_MONTHS = int(os.getenv("SOCIAL_RECENT_MONTHS", "6"))
 MAX_DOC_RESULTS_PER_FUND = int(os.getenv("MAX_DOC_RESULTS_PER_FUND", "10"))
+MAX_DOC_FETCH_PER_FUND = int(os.getenv("MAX_DOC_FETCH_PER_FUND", "3"))
 MAX_SOCIAL_RESULTS_PER_QUERY = int(os.getenv("MAX_SOCIAL_RESULTS_PER_QUERY", "8"))
 FETCH_DOCUMENT_TEXT = os.getenv("FETCH_DOCUMENT_TEXT", "1") != "0"
 
@@ -43,12 +44,19 @@ OFFICIAL_DOMAINS = [
     "schroders.com",
     "ubs.com",
     "hsbc.com",
+    "hsbc.com.hk",
+    "assetmanagement.hsbc.nl",
     "invesco.com",
     "pimco.com",
     "vanguard.com",
     "franklintempleton.com",
     "valuepartners-group.com",
     "amundi.com",
+    "amundi.com.hk",
+    "pictet.com",
+    "bea-union-investment.com",
+    "bea-union-investment.com.hk",
+    "sfc.hk",
     "abrdn.com",
     "morganstanley.com",
 ]

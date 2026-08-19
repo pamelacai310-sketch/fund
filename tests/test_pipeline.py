@@ -7,8 +7,10 @@ import openpyxl
 import pandas as pd
 
 from analyzer import analyze_official_docs, analyze_social_comments
+from classification_engine import build_classification_outputs
 from fund_parser import build_fund_summary, extract_funds, group_underlying_funds
 from master_skills import build_master_skill_catalog, build_master_skill_outputs
+from market_data import _normalise_nav_rows
 from mention_pipeline import (
     build_audit_summary,
     build_content_hash,
@@ -17,10 +19,12 @@ from mention_pipeline import (
     redact_pii,
 )
 from product_master import build_product_master_data
+from peer_scoring import build_peer_score_outputs
 from report_writer import write_report
 from schemas import FundCompanyMention, SourceRef, SourceType
-from search_docs import extract_document_date, score_document
+from search_docs import extract_document_date, score_document, score_identity_match
 from social_search import build_company_search_units, filter_recent_social, read_social_comments_csv
+from structured_products import build_structured_product_outputs
 from window import default_window, subtract_months
 
 
@@ -45,6 +49,23 @@ class FundPipelineTests(unittest.TestCase):
         self.assertEqual(int(summary.iloc[0]['share_product_count']), 3)
         self.assertIn('测试亚洲债券人民币份额', summary.iloc[0]['fund_names'])
         self.assertIn('未知基金公司', summary.iloc[0]['fund_companies'])
+
+    def test_underlying_identity_prefers_stable_code_over_fuzzy_name(self):
+        raw = pd.DataFrame({
+            '基金代码': ['968100.OF', '968101.OF', '968102.OF'],
+            '晨星代码': ['FS00000001', 'FS00000001', 'FS00000002'],
+            'Product name': [
+                'Alpha Asian Bond Fund CNY ACC',
+                'Alpha Asian Fixed Income Portfolio USD DIST',
+                'Alpha Asian Bond Fund USD ACC',
+            ],
+            'ISIN': ['HK0000000100', 'HK0000000101', 'HK0000000102'],
+        })
+        shares, base = group_underlying_funds(extract_funds(raw))
+        self.assertEqual(len(base), 2)
+        self.assertEqual(shares.iloc[0]['base_fund_id'], shares.iloc[1]['base_fund_id'])
+        self.assertNotEqual(shares.iloc[0]['base_fund_id'], shares.iloc[2]['base_fund_id'])
+        self.assertEqual(shares.iloc[1]['identity_resolution_method'], 'morningstar_code')
 
     def test_company_search_units_group_by_fund_company(self):
         raw = pd.DataFrame({
@@ -77,6 +98,50 @@ class FundPipelineTests(unittest.TestCase):
         }, today=date(2026, 5, 15))
         self.assertGreaterEqual(fresh, 70)
         self.assertGreaterEqual(relevance, 100)
+
+    def test_document_identity_gate_rejects_same_manager_wrong_product(self):
+        fund = pd.Series({
+            'base_fund_name': 'JPMorgan Asian Dividend',
+            'fund_names_en': 'JPMorgan Asian Dividend - PRC CNY ACC',
+            'fund_names_cn': '摩根亚洲股息基金 PRC-CNY 累积',
+            'isins': 'HK0000431814',
+            'product_codes': '968048.OF',
+            'morningstar_codes': 'FS00008Z98',
+        })
+        correct_score, _ = score_identity_match(
+            fund,
+            'JPMorgan Asia Equity Dividend (acc) - USD',
+            'https://am.jpmorgan.com/products/jpmorgan-asia-equity-dividend',
+        )
+        wrong_score, _ = score_identity_match(
+            fund,
+            'JPMorgan Investment Funds - Global Dividend Fund',
+            'https://am.jpmorgan.com/global-dividend-fund.pdf',
+        )
+        code_score, method = score_identity_match(
+            fund,
+            'Fund factsheet',
+            'https://example.com/document/HK0000431814.pdf',
+        )
+        self.assertGreaterEqual(correct_score, 0.68)
+        self.assertLess(wrong_score, 0.68)
+        self.assertEqual(code_score, 1.0)
+        self.assertTrue(method.startswith('identifier:'))
+
+        amundi = pd.Series({
+            'base_fund_name': 'Amundi HK - Growth Fund',
+            'fund_names_en': 'Amundi HK-Growth Fund M CNY ACC',
+            'fund_names_cn': '东方汇理香港增长基金 M CNY 累积',
+            'isins': 'HK001122040',
+            'product_codes': '968171.OF',
+            'morningstar_codes': 'FSUSA0BBOO',
+        })
+        same_manager_wrong, _ = score_identity_match(
+            amundi,
+            'AMUNDI FUNDS MULTI-STRATEGY GROWTH',
+            'https://www.amundi.com/globaldistributor/product/view/LU1883335165',
+        )
+        self.assertLess(same_manager_wrong, 0.68)
 
     def test_official_analysis_uses_docs_and_peers(self):
         base_df = pd.DataFrame([
@@ -218,6 +283,14 @@ class FundPipelineTests(unittest.TestCase):
                 pain_map_df=pd.DataFrame([{'investor_pain': '亏损/回撤'}]),
                 market_radar_df=pd.DataFrame([{'next_month_narrative': '降息受益'}]),
                 evidence_audit_df=pd.DataFrame([{'audit_decision': '可作为初步定位'}]),
+                structured_tranche_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                cashflow_cushion_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                structured_risk_audit_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                classification_fact_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                classification_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                fingerprint_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
+                peer_edges_df=pd.DataFrame([{'fund_a_id': 'FUND_0001'}]),
+                classification_review_df=pd.DataFrame([{'base_fund_id': 'FUND_0001'}]),
                 output_name=output_name,
             )
             wb = openpyxl.load_workbook(output_path)
@@ -230,6 +303,74 @@ class FundPipelineTests(unittest.TestCase):
             self.assertIn('痛点机制映射', wb.sheetnames)
             self.assertIn('下月卖点雷达', wb.sheetnames)
             self.assertIn('反证审计', wb.sheetnames)
+            self.assertIn('结构化分层分析', wb.sheetnames)
+            self.assertIn('现金流瀑布与安全垫', wb.sheetnames)
+            self.assertIn('结构化风险审计', wb.sheetnames)
+            self.assertIn('分类事实包', wb.sheetnames)
+            self.assertIn('确定性基金分类', wb.sheetnames)
+            self.assertIn('策略指纹', wb.sheetnames)
+            self.assertIn('同类基金匹配', wb.sheetnames)
+            self.assertIn('分类人工复核队列', wb.sheetnames)
+
+    def test_deterministic_classifier_respects_strategy_negative_rules(self):
+        base_df = pd.DataFrame([
+            {'base_fund_id': 'FUND_0001', 'base_fund_name': 'Alpha Equity Long Short Fund', 'fund_names_cn': '', 'fund_names_en': 'Alpha Equity Long Short Fund'},
+            {'base_fund_id': 'FUND_0002', 'base_fund_name': 'Beta Bond Futures Fund', 'fund_names_cn': '', 'fund_names_en': 'Beta Bond Futures Fund'},
+            {'base_fund_id': 'FUND_0003', 'base_fund_name': 'Gamma Systematic Trend Fund', 'fund_names_cn': '', 'fund_names_en': 'Gamma Systematic Trend Fund'},
+            {'base_fund_id': 'FUND_0004', 'base_fund_name': 'Delta Multi Asset Fund', 'fund_names_cn': '', 'fund_names_en': 'Delta Multi Asset Fund'},
+        ])
+        evidence = {
+            'FUND_0001': 'Principal investment strategy: The Fund invests at least 80% in equities and uses long/short positions. Target net exposure: 60%.',
+            'FUND_0002': 'Principal investment strategy: The Fund invests at least 80% in bonds. Futures and swaps are used only for hedging purposes.',
+            'FUND_0003': 'Principal investment strategy: A systematic trend following strategy across global futures. Derivatives are the core return generation instruments.',
+            'FUND_0004': 'Principal investment strategy: Strategic asset allocation with at least 30% in equities and at least 30% in bonds.',
+        }
+        docs_df = pd.DataFrame([
+            {
+                'base_fund_id': base_id,
+                'title': f'{base_id} factsheet',
+                'snippet': '',
+                'text_excerpt': text,
+                'link': f'https://example.com/{base_id}.pdf',
+                'document_date': '2026-06-30',
+            }
+            for base_id, text in evidence.items()
+        ])
+        outputs = build_classification_outputs(base_df, docs_df, pd.DataFrame())
+        classified = outputs['classification_df'].set_index('base_fund_id')
+
+        self.assertEqual(classified.loc['FUND_0001', 'classification_path'], 'Equity/NontraditionalEquity/LongShortNetLong')
+        self.assertIn('market_neutral_not_implied_by_long_short', classified.loc['FUND_0001', 'negative_rule_hits'])
+        self.assertTrue(classified.loc['FUND_0002', 'classification_path'].startswith('FixedIncome/'))
+        self.assertIn('cta_derivatives_hedging_only', classified.loc['FUND_0002', 'negative_rule_hits'])
+        self.assertEqual(classified.loc['FUND_0003', 'classification_path'], 'Alternative/CTA/SystematicTrend')
+        self.assertEqual(classified.loc['FUND_0003', 'routing_decision'], 'auto_accept')
+        self.assertEqual(classified.loc['FUND_0004', 'classification_path'], 'MultiAsset/StrategicAllocation/CrossAsset')
+        self.assertIn('multi_asset_not_alternative_multi_strategy', classified.loc['FUND_0004', 'negative_rule_hits'])
+
+    def test_high_yield_peer_graph_uses_fingerprint_and_hard_blocks(self):
+        base_df = pd.DataFrame([
+            {'base_fund_id': 'FUND_0001', 'base_fund_name': 'Alpha Asian High Yield Bond Fund', 'fund_names_cn': '', 'fund_names_en': 'Alpha Asian High Yield Bond Fund'},
+            {'base_fund_id': 'FUND_0002', 'base_fund_name': 'Beta Asian High Yield Bond Fund', 'fund_names_cn': '', 'fund_names_en': 'Beta Asian High Yield Bond Fund'},
+            {'base_fund_id': 'FUND_0003', 'base_fund_name': 'Gamma Global Equity Fund', 'fund_names_cn': '', 'fund_names_en': 'Gamma Global Equity Fund'},
+        ])
+        docs_df = pd.DataFrame([
+            {'base_fund_id': 'FUND_0001', 'title': 'Factsheet', 'snippet': '', 'text_excerpt': 'Principal investment strategy: At least 80% in Asian high yield bonds below investment grade. Active management.', 'link': 'https://example.com/a.pdf', 'document_date': '2026-06-30'},
+            {'base_fund_id': 'FUND_0002', 'title': 'Factsheet', 'snippet': '', 'text_excerpt': 'Principal investment strategy: At least 80% in Asian high yield bonds below investment grade. Active management.', 'link': 'https://example.com/b.pdf', 'document_date': '2026-06-30'},
+            {'base_fund_id': 'FUND_0003', 'title': 'Factsheet', 'snippet': '', 'text_excerpt': 'Principal investment strategy: At least 80% in global equities for capital growth.', 'link': 'https://example.com/c.pdf', 'document_date': '2026-06-30'},
+        ])
+        outputs = build_classification_outputs(base_df, docs_df, pd.DataFrame())
+        classified = outputs['classification_df'].set_index('base_fund_id')
+        self.assertEqual(classified.loc['FUND_0001', 'classification_l2'], 'HighYield')
+
+        peers = outputs['peer_edges_df']
+        same = peers[(peers['fund_a_id'].eq('FUND_0001')) & (peers['fund_b_id'].eq('FUND_0002'))].iloc[0]
+        self.assertEqual(same['peer_tier'], 'near')
+        self.assertEqual(same['peer_confidence_gate'], 'provisional_downgrade')
+        self.assertGreaterEqual(float(same['peer_coverage']), .70)
+        blocked = peers[(peers['fund_a_id'].eq('FUND_0001')) & (peers['fund_b_id'].eq('FUND_0003'))].iloc[0]
+        self.assertEqual(blocked['peer_tier'], 'not_peer')
+        self.assertEqual(blocked['hard_incompatibility'], 'different_l1_asset_or_return_driver')
 
     def test_master_skill_outputs_configure_fund_analyst_capabilities(self):
         catalog = build_master_skill_catalog()
@@ -355,6 +496,236 @@ Redemption: Daily redemption with normal settlement.
         self.assertEqual(row['max_drawdown'], '-8.20%')
         self.assertIn('Daily', row['liquidity_terms'])
         self.assertGreaterEqual(int(row['master_data_quality_score']), 80)
+
+    def test_structured_product_tranche_fields_and_outputs(self):
+        base_df = pd.DataFrame([{
+            'base_fund_id': 'FUND_0001',
+            'base_fund_name': 'ABC Structured Income Fund',
+            'fund_company': '测试基金公司',
+            'share_count': 1,
+            'product_codes': 'P00001',
+            'isins': 'HK0000000002',
+            'morningstar_codes': '',
+            'fund_names_cn': 'ABC 结构化收益基金',
+            'fund_names_en': 'ABC Structured Income Fund',
+        }])
+        docs_df = pd.DataFrame([{
+            'base_fund_id': 'FUND_0001',
+            'doc_type_guess': 'kfs',
+            'title': 'ABC Product Key Facts',
+            'link': 'https://example.com/kfs.pdf',
+            'document_date': '2026-05-01',
+            'is_latest_candidate': True,
+            'relevance_score': 100,
+            'freshness_score': 80,
+            'snippet': '',
+            'text_excerpt': '''
+本产品为结构化资产管理计划，设置优先级、夹层和劣后级。
+优先级预期收益 6%，优先接受收益分配。
+夹层预期收益 8%。
+劣后级享有剩余收益分配权。
+劣后安全垫: 20%
+预警线: 90%
+止损线: 85%
+底层资产为标准化债券，交易日每日开放赎回。
+''',
+        }])
+        master = build_product_master_data(
+            base_df,
+            pd.DataFrame(),
+            docs_df,
+            pd.DataFrame([{'base_fund_id': 'FUND_0001', 'category': '策略收益'}]),
+        )
+        row = master.iloc[0]
+        self.assertEqual(row['is_structured_product'], '是')
+        self.assertIn('优先', row['tranche_structure'])
+        self.assertIn('夹层', row['tranche_structure'])
+        self.assertIn('劣后', row['tranche_structure'])
+        self.assertEqual(row['waterfall_order'], '优先 > 夹层/平层 > 劣后')
+        self.assertEqual(row['loss_absorption_order'], '劣后 > 夹层/平层 > 优先')
+        self.assertEqual(row['junior_cushion_ratio'], '20%')
+        self.assertEqual(row['warning_line'], '90%')
+        self.assertEqual(row['stop_loss_line'], '85%')
+
+        outputs = build_structured_product_outputs(master)
+        tranche = outputs['structured_tranche_df'].iloc[0]
+        self.assertIn('必须明确投资人认购的是优先', tranche['investor_choice_check'])
+        cushion = outputs['cashflow_cushion_df'].iloc[0]
+        self.assertIn('劣后安全垫: 20%', cushion['senior_coverage_check'])
+        audit = outputs['structured_risk_audit_df'].iloc[0]
+        self.assertIn('进一步测算', audit['audit_decision'])
+
+    def test_structured_product_flags_fake_subordination_and_low_liquidity(self):
+        base_df = pd.DataFrame([{
+            'base_fund_id': 'FUND_0002',
+            'base_fund_name': 'DEF Structured Equity Fund',
+            'fund_company': '测试基金公司',
+            'share_count': 1,
+            'product_codes': 'P00002',
+            'isins': 'HK0000000003',
+            'morningstar_codes': '',
+            'fund_names_cn': 'DEF 结构化股权基金',
+            'fund_names_en': 'DEF Structured Equity Fund',
+        }])
+        docs_df = pd.DataFrame([{
+            'base_fund_id': 'FUND_0002',
+            'doc_type_guess': 'kfs',
+            'title': 'DEF Product Key Facts',
+            'link': 'https://example.com/def-kfs.pdf',
+            'document_date': '2026-05-01',
+            'is_latest_candidate': True,
+            'relevance_score': 100,
+            'freshness_score': 80,
+            'snippet': '',
+            'text_excerpt': '''
+本产品为结构化私募股权基金，包含优先级和劣后级。
+优先级目标收益 7%。
+劣后级权利义务与优先级没有任何区别。
+底层资产为未上市股权，低流动性，退出不确定。
+''',
+        }])
+        master = build_product_master_data(
+            base_df,
+            pd.DataFrame(),
+            docs_df,
+            pd.DataFrame([{'base_fund_id': 'FUND_0002', 'category': '主题成长股票'}]),
+        )
+        flags = master.iloc[0]['structured_product_risk_flags']
+        self.assertIn('fake_subordination', flags)
+        self.assertIn('low_liquidity_stop_loss', flags)
+        self.assertIn('missing_stop_loss_line', flags)
+        audit = build_structured_product_outputs(master)['structured_risk_audit_df'].iloc[0]
+        self.assertIn('阻断', audit['audit_decision'])
+
+    def test_market_data_uses_cumulative_nav_for_distribution_return_proxy(self):
+        nav = _normalise_nav_rows({
+            'rows': [
+                {'fbrq': '2026-02-02 00:00:00', 'jjjz': '0.95', 'ljjz': '1.10'},
+                {'fbrq': '2026-01-02 00:00:00', 'jjjz': '1.00', 'ljjz': '1.00'},
+            ],
+        })
+        self.assertEqual(nav.iloc[-1]['adjusted_nav'], 1.10)
+        self.assertGreater(nav.iloc[-1]['adjusted_nav'], nav.iloc[-1]['unit_nav'])
+
+    def test_peer_score_publishes_provisional_not_formal_without_benchmark(self):
+        base_df = pd.DataFrame([
+            {'base_fund_id': 'F1', 'base_fund_name': 'Value Partners Classic Fund', 'fund_names_cn': '惠理价值基金'},
+            {'base_fund_id': 'F2', 'base_fund_name': 'Amundi HK-Growth Fund', 'fund_names_cn': '东方汇理香港增长基金'},
+            {'base_fund_id': 'F3', 'base_fund_name': 'JPMorgan SAR Hong Kong PRC', 'fund_names_cn': '摩根香港基金'},
+        ])
+        dates = pd.date_range('2024-01-31', periods=30, freq='ME')
+        series_rows = []
+        observation_rows = []
+        for index, fund in base_df.iterrows():
+            series_id = f'S{index + 1}'
+            product_code = f'96810{index}.OF'
+            series_rows.append({
+                'series_id': series_id,
+                'product_code': product_code,
+                'base_fund_id': fund['base_fund_id'],
+                'base_fund_name': fund['base_fund_name'],
+                'fund_company': '测试公司',
+                'fund_name_cn': fund['fund_names_cn'],
+                'fund_name_en': fund['base_fund_name'],
+                'isin': f'HK000000000{index}',
+                'reported_currency': 'CNY',
+                'is_hedged': False,
+                'distribution_type': 'accumulation',
+                'history_start': dates.min().date().isoformat(),
+                'history_end': dates.max().date().isoformat(),
+                'history_months': 29,
+                'observation_count': len(dates),
+                'return_series_field': 'cumulative_nav',
+                'return_reconstruction_method': 'vendor_cumulative_nav_proxy',
+                'source_name': 'test',
+                'source_url': 'https://example.com',
+                'source_quality': 'test',
+                'series_status': 'usable',
+            })
+            for offset, nav_date in enumerate(dates):
+                nav = 10 * (1 + 0.004 * (index + 1)) ** offset * (1 + 0.01 * ((offset + index) % 3 - 1))
+                observation_rows.append({
+                    'series_id': series_id,
+                    'product_code': product_code,
+                    'base_fund_id': fund['base_fund_id'],
+                    'date': nav_date,
+                    'unit_nav': nav,
+                    'cumulative_nav': nav,
+                    'adjusted_nav': nav,
+                    'reported_currency': 'CNY',
+                    'source_name': 'test',
+                    'source_url': 'https://example.com',
+                    'retrieved_at': '2026-08-19T00:00:00Z',
+                })
+        classification = pd.DataFrame([
+            {'base_fund_id': fund_id, 'classification_path': 'Equity/LongOnly/BroadMarket'}
+            for fund_id in base_df['base_fund_id']
+        ])
+        fingerprint = pd.DataFrame([
+            {
+                'base_fund_id': fund_id,
+                'return_drivers': '["equity_beta"]',
+                'primary_assets': '["equity"]',
+                'strategy_mechanics': '["long_only"]',
+                'geography': '["HongKong"]',
+                'sector_theme': '[]',
+                'equity_style': '["Value"]' if fund_id == 'F1' else '["Growth"]',
+                'credit_quality': '[]',
+                'duration_band': '',
+                'derivative_role': '',
+                'leverage_role': '',
+            }
+            for fund_id in base_df['base_fund_id']
+        ])
+        outputs = build_peer_score_outputs(
+            base_df,
+            pd.DataFrame(series_rows),
+            pd.DataFrame(observation_rows),
+            classification,
+            fingerprint,
+            pd.DataFrame({'base_fund_id': base_df['base_fund_id']}),
+        )
+        scores = outputs['investment_scores_df']
+        self.assertEqual(set(scores['score_status']), {'provisional'})
+        self.assertTrue(scores['investment_quality_score'].notna().all())
+        self.assertFalse(scores['benchmark_available'].any())
+        self.assertTrue(scores['blocked_or_provisional_reason'].str.contains('基准').all())
+
+    def test_peer_score_blocks_short_history_instead_of_zero_score(self):
+        base_df = pd.DataFrame([{
+            'base_fund_id': 'F1',
+            'base_fund_name': 'JPMorgan Asia Equity High Income Fund',
+            'fund_names_cn': '摩根亚洲高息股票基金',
+        }])
+        dates = pd.date_range('2026-04-30', periods=5, freq='ME')
+        series_master = pd.DataFrame([{
+            'series_id': 'S1', 'product_code': '968213.OF', 'base_fund_id': 'F1',
+            'base_fund_name': base_df.iloc[0]['base_fund_name'], 'fund_company': '摩根资产管理',
+            'fund_name_cn': base_df.iloc[0]['fund_names_cn'], 'fund_name_en': '', 'isin': '',
+            'reported_currency': 'CNY', 'is_hedged': True, 'distribution_type': 'accumulation',
+            'history_start': dates.min().date().isoformat(), 'history_end': dates.max().date().isoformat(),
+            'history_months': 4, 'observation_count': 5, 'return_series_field': 'cumulative_nav',
+            'return_reconstruction_method': 'vendor_cumulative_nav_proxy', 'source_name': 'test',
+            'source_url': 'https://example.com', 'source_quality': 'test', 'series_status': 'short_history',
+        }])
+        observations = pd.DataFrame([{
+            'series_id': 'S1', 'product_code': '968213.OF', 'base_fund_id': 'F1', 'date': nav_date,
+            'unit_nav': 10 + index, 'cumulative_nav': 10 + index, 'adjusted_nav': 10 + index,
+            'reported_currency': 'CNY', 'source_name': 'test', 'source_url': 'https://example.com',
+            'retrieved_at': '2026-08-19T00:00:00Z',
+        } for index, nav_date in enumerate(dates)])
+        outputs = build_peer_score_outputs(
+            base_df,
+            series_master,
+            observations,
+            pd.DataFrame([{'base_fund_id': 'F1', 'classification_path': 'Equity/LongOnly/Income'}]),
+            pd.DataFrame([{'base_fund_id': 'F1'}]),
+            pd.DataFrame([{'base_fund_id': 'F1'}]),
+        )
+        row = outputs['investment_scores_df'].iloc[0]
+        self.assertEqual(row['score_status'], 'blocked')
+        self.assertTrue(pd.isna(row['investment_quality_score']))
+        self.assertIn('少于12个月', row['blocked_or_provisional_reason'])
 
 
 if __name__ == '__main__':

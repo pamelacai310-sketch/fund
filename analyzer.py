@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import re
 
 import pandas as pd
+
+from classification_engine import build_peer_positioning_from_edges
 
 PAIN_KEYWORDS = {
     '亏损/回撤': ['亏', '亏损', '跌', '大跌', '回撤', '浮亏', '净值跌', '套住', 'loss_drawdown'],
@@ -124,12 +128,22 @@ def build_peer_positioning(base_df: pd.DataFrame, categories: dict[str, str]) ->
     return out
 
 
-def analyze_official_docs(base_df: pd.DataFrame, docs_df: pd.DataFrame) -> pd.DataFrame:
+def analyze_official_docs(
+    base_df: pd.DataFrame,
+    docs_df: pd.DataFrame,
+    classification_df: pd.DataFrame | None = None,
+    peer_edges_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     categories = {}
     for _, fund in base_df.iterrows():
         text = ' '.join(str(fund.get(col, '')) for col in ['base_fund_name', 'fund_names_cn', 'fund_names_en'])
-        categories[fund['base_fund_id']] = classify_fund_category(text)
-    peer_positioning = build_peer_positioning(base_df, categories)
+        matched = (
+            classification_df[classification_df['base_fund_id'].astype(str).eq(str(fund['base_fund_id']))]
+            if classification_df is not None and not classification_df.empty and 'base_fund_id' in classification_df
+            else pd.DataFrame()
+        )
+        categories[fund['base_fund_id']] = str(matched.iloc[0]['category']) if not matched.empty else classify_fund_category(text)
+    peer_positioning = build_peer_positioning(base_df, categories) if peer_edges_df is None else {}
 
     rows = []
     for _, fund in base_df.iterrows():
@@ -140,18 +154,44 @@ def analyze_official_docs(base_df: pd.DataFrame, docs_df: pd.DataFrame) -> pd.Da
         )
         category = categories[fund['base_fund_id']]
         strategies = detect_rare_strategies(f"{fund.get('base_fund_name', '')} {doc_text}")
+        classification_match = (
+            classification_df[classification_df['base_fund_id'].astype(str).eq(str(fund['base_fund_id']))]
+            if classification_df is not None and not classification_df.empty and 'base_fund_id' in classification_df
+            else pd.DataFrame()
+        )
+        classification = classification_match.iloc[0] if not classification_match.empty else None
+        if classification is not None:
+            strategy_path = ' / '.join(
+                str(classification.get(col, '') or '')
+                for col in ['classification_l2', 'classification_l3']
+                if str(classification.get(col, '') or '')
+            )
+            if strategy_path:
+                strategies = list(dict.fromkeys([strategy_path, *strategies]))
         latest = docs[docs.get('is_latest_candidate', pd.Series(dtype=bool)).astype(str).str.lower().isin(['true', '1'])] if not docs.empty else pd.DataFrame()
+        peer_text = (
+            build_peer_positioning_from_edges(str(fund['base_fund_id']), peer_edges_df)
+            if peer_edges_df is not None else peer_positioning[fund['base_fund_id']]
+        )
         rows.append({
             'base_fund_id': fund['base_fund_id'],
             'base_fund_name': fund['base_fund_name'],
             'category': category,
+            'classification_path': classification.get('classification_path', '') if classification is not None else '',
+            'classification_confidence': classification.get('classification_confidence', '') if classification is not None else '',
+            'classification_route': classification.get('routing_decision', '') if classification is not None else '',
+            'classification_rule_evidence': '；'.join(filter(None, [
+                str(classification.get('positive_rule_hits', '') or '') if classification is not None else '',
+                str(classification.get('override_rule_hits', '') or '') if classification is not None else '',
+            ])),
+            'classification_negative_evidence': classification.get('negative_rule_hits', '') if classification is not None else '',
             'official_doc_count': len(docs),
             'latest_document_title': latest.iloc[0]['title'] if not latest.empty else '',
             'latest_document_date': latest.iloc[0]['document_date'] if not latest.empty else '',
             'latest_document_link': latest.iloc[0]['link'] if not latest.empty else '',
             'product_features': product_features_for(category, strategies, docs),
             'rare_or_differentiated_strategies': '；'.join(strategies) if strategies else '未从可用资料中识别出明显罕见策略',
-            'peer_comparison': peer_positioning[fund['base_fund_id']],
+            'peer_comparison': peer_text,
             'evidence_summary': summarize_doc_evidence(docs),
         })
     return pd.DataFrame(rows)

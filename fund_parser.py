@@ -184,6 +184,58 @@ def assign_base_ids(names: list[str], threshold: int = 92) -> list[str]:
     return assigned
 
 
+def resolve_base_ids(df: pd.DataFrame, threshold: int = 92) -> tuple[list[str], list[str], list[float]]:
+    """Resolve share classes with stable identifiers before name similarity."""
+    clusters: list[dict] = []
+    assigned: list[str] = []
+    methods: list[str] = []
+    confidences: list[float] = []
+    for _, row in df.iterrows():
+        name = str(row.get('base_fund_name', '') or '').strip()
+        company = str(row.get('fund_company', '') or '').strip()
+        morningstar = str(row.get('morningstar_code', '') or '').strip().upper()
+        matched = None
+        method = ''
+        confidence = 0.0
+
+        if morningstar:
+            for index, cluster in enumerate(clusters):
+                if morningstar in cluster['morningstar_codes']:
+                    matched, method, confidence = index, 'morningstar_code', 1.0
+                    break
+
+        if matched is None:
+            for index, cluster in enumerate(clusters):
+                conflicting_ids = bool(morningstar and cluster['morningstar_codes'] and morningstar not in cluster['morningstar_codes'])
+                if name.lower() == cluster['name'].lower() and company == cluster['company'] and not conflicting_ids:
+                    matched, method, confidence = index, 'normalized_name_exact', 0.98
+                    break
+
+        if matched is None:
+            for index, cluster in enumerate(clusters):
+                same_company = company == cluster['company'] or company == '未知基金公司' or cluster['company'] == '未知基金公司'
+                conflicting_ids = bool(morningstar and cluster['morningstar_codes'] and morningstar not in cluster['morningstar_codes'])
+                similarity = fuzz.token_sort_ratio(name.lower(), cluster['name'].lower())
+                if same_company and not conflicting_ids and similarity >= threshold:
+                    matched, method, confidence = index, 'name_fuzzy_fallback', round(similarity / 100, 4)
+                    break
+
+        if matched is None:
+            clusters.append({
+                'name': name,
+                'company': company,
+                'morningstar_codes': {morningstar} if morningstar else set(),
+            })
+            matched, method, confidence = len(clusters) - 1, 'new_underlying_fund', 1.0 if morningstar else 0.80
+        elif morningstar:
+            clusters[matched]['morningstar_codes'].add(morningstar)
+
+        assigned.append(f'FUND_{matched + 1:04d}')
+        methods.append(method)
+        confidences.append(confidence)
+    return assigned, methods, confidences
+
+
 def group_underlying_funds(funds: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = funds.copy()
     for col in ['product_code', 'morningstar_code', 'isin', 'fund_name_cn', 'fund_name_en']:
@@ -191,7 +243,10 @@ def group_underlying_funds(funds: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
             df[col] = ''
     df['base_fund_name'] = df.apply(derive_base_fund_name, axis=1)
     df['fund_company'] = df.apply(infer_fund_company, axis=1)
-    df['base_fund_id'] = assign_base_ids(df['base_fund_name'].tolist())
+    base_ids, methods, confidences = resolve_base_ids(df)
+    df['base_fund_id'] = base_ids
+    df['identity_resolution_method'] = methods
+    df['identity_resolution_confidence'] = confidences
     grouped = []
     for base_id, g in df.groupby('base_fund_id'):
         grouped.append({
@@ -204,5 +259,7 @@ def group_underlying_funds(funds: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
             'fund_names_cn': ' | '.join(sorted(set(x for x in g['fund_name_cn'].astype(str) if x and x != 'nan'))),
             'fund_names_en': ' | '.join(sorted(set(x for x in g['fund_name_en'].astype(str) if x and x != 'nan'))),
             'fund_company': ' | '.join(sorted(set(x for x in g['fund_company'].astype(str) if x and x != 'nan'))),
+            'identity_resolution_methods': '；'.join(sorted(set(g['identity_resolution_method'].astype(str)))),
+            'identity_resolution_min_confidence': round(float(g['identity_resolution_confidence'].min()), 4),
         })
     return df.reset_index(drop=True), pd.DataFrame(grouped).sort_values(['base_fund_name']).reset_index(drop=True)

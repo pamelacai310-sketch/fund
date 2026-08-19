@@ -1,0 +1,68 @@
+产品代码,晨星代码,ISIN,基金名称（中）,Product name
+968010.OF,FSGBR05GK2,HK0000259660,摩根太平洋证券基金 PRC-RMB HDG 累积,JPMorgan Pacific Securities Fund PRC-RMB HDG ACC
+968000.OF,FSGBR06GP7,HK0000259686,摩根亚洲总收益债券基金 PRC-CNY HDG 累积,JPMorgan Asian Total Return Bond Fund PRC-CNY HDG ACC
+968001.OF,FSGBR06GP7,HK0000259694,摩根亚洲总收益债券基金 PRC-CNY HDG 派息,JPMorgan Asian Total Return Bond Fund PRC-CNY HDG MDIST
+968040.OF,FSUSA08DY0,HK0000264959,惠理价值基金 P-CNY,Value Partners Classic Fund P-CNY
+968033.OF,FSUSA0BBOO,HK0000293313,东方汇理香港增长基金 M CNY HDG 累积,Amundi HK-Growth Fund M CNY HDG ACC
+968032.OF,FSUSA0BBOO,HK0000293321,东方汇理香港增长基金 M CNY HDG 派息,Amundi HK-Growth Fund M CNY HDG DIST
+968064.OF,FS0000CIIX,HK0000303419,惠理高息股票基金 P-CNY 累积,Value Partners High-Dividend Stocks Fund P-CNY ACC
+968065.OF,FS0000CIIX,HK0000303427,惠理高息股票基金 P-CNY 派息,Value Partners High-Dividend Stocks Fund P-CNY DIST
+968041.OF,FSUSA08DY0,HK0000310737,惠理价值基金 P-CNY HDG,Value Partners Classic Fund P-CNY HDG
+968036.OF,FS0000BOCN,HK0000358900,汇丰亚太日本以外股票波幅基金 BC-CNY 累积,HSBC Asia Pacific ex Japan Equity Volatility BC-CNY ACC
+968044.OF,FS00008Z98,HK0000431798,摩根亚洲股息基金 PRC-CNY HDG 累积,JPMorgan Asian Dividend - PRC CNY HDG ACC
+968045.OF,FS00008Z98,HK0000431806,摩根亚洲股息基金 PRC-CNY HDG 派息,JPMorgan Asian Dividend - PRC CNY HDG DIST
+968048.OF,FS00008Z98,HK0000431814,摩根亚洲股息基金 PRC-CNY 累积,JPMorgan Asian Dividend - PRC CNY ACC
+968049.OF,FS00008Z98,HK0000431822,摩根亚洲股息基金 PRC-CNY 派息,JPMorgan Asian Dividend - PRC CNY MDIST
+968037.OF,FS0000BOCN,HK0000443090,汇丰亚太日本以外股票波幅基金 BM2-CNY 派息,HSBC Asia Pacific ex Japan Equity Volatility BM2-CNY DIST
+968050.OF,FSGBR06FME,HK0000479862,摩根环球债券基金 PRC-CNY HDG 累积,JPMorgan Global Bond Fund - PRC CNY HDG ACC
+968051.OF,FSGBR06FME,HK0000479870,摩根环球债券基金 PRC-CNY HDG 派息,JPMorgan Global Bond Fund - PRC CNY HDG MDIST
+968052.OF,FSGBR06FME,HK0000479888,摩根环球债券基金 PRC-CNY 累积,JPMorgan Global Bond Fund - PRC CNY ACC
+968053.OF,FSGBR06FME,HK0000479896,摩根环球债券基金 PRC-CNY 派息,JPMorgan Global Bond Fund - PRC CNY MDIST
+968075.OF,FS0000CQAY,HK0000480449,百达策略收益 HM-CNY 累积,Pictet Strategic Income HM-CNY ACC
+968081.OF,FS0000D067,HK0000531597,汇丰亚洲高入息债券基金 BC-CNY 累积,HSBC Asia High Income Bond Fund BC-CNY ACC
+968083.OF,FS0000D067,HK0000531605,汇丰亚洲高入息债券基金 BM2-CNY 派息,HSBC Asia High Income Bond Fund BM2-CNY DIST
+968084.OF,FS0000D067,HK0000531613,汇丰亚洲高入息债券基金 BM30-CNY,HSBC Asia High Income Bond Fund BM30-CNY
+968067.OF,FS0000CIIX,HK0000553179,惠理高息股票基金 P-CNY HDG 累积,Value Partners High-Dividend Stocks Fund P-CNY HDG ACC
+968066.OF,FS0000CIIX,HK0000553187,惠理高息股票基金 P-CNY HDG 派息,Value Partners High-Dividend Stocks Fund P-CNY HDG DIST
+968103.OF,FS0000DDWQ,HK0000581956,汇丰亚洲债券基金 BC-CNY 累积,HSBC Asian Bond Fund BC-CNY ACC
+968104.OF,FS0000DDWQ,HK0000581964,汇丰亚洲债券基金 BCH-CNY 累积,HSBC Asian Bond Fund BCH-CNY ACC
+968105.OF,FS0000DDWQ,HK0000581972,汇丰亚洲债券基金 BM2-CNY 派息,HSBC Asian Bond Fund BM2-CNY DIST
+968106.OF,FS0000DDWQ,HK0000581980,汇丰亚洲债券基金 BM3H-CNY 派息,HSBC Asian Bond Fund BM3H-CNY DIST
+968082.OF,FS0000D067,HK0000582046,汇丰亚洲高入息债券基金 BCO-CNY,HSBC Asia High Income Bond Fund BCO-CNY
+968092.OF,FS0000DDWS,HK0000582103,汇丰亚洲高收益债券基金 BC-CNY 累积,HSBC Asian High Yield Bond Fund BC-CNY ACC
+968093.OF,FS0000DDWS,HK0000582111,汇丰亚洲高收益债券基金 BCH-CNY 累积,HSBC Asian High Yield Bond Fund BCH-CNY ACC
+968094.OF,FS0000DDWS,HK0000582129,汇丰亚洲高收益债券基金 BM2-CNY 派息,HSBC Asian High Yield Bond Fund BM2-CNY DIST
+968095.OF,FS0000DDWS,HK0000582137,汇丰亚洲高收益债券基金 BM3H-CNY 派息,HSBC Asian High Yield Bond Fund BM3H-CNY DIST
+968072.OF,FSHKG08AAC,HK0000584075,摩根亚洲增长基金 PRC-CNY HDG 累积,JPMorgan Asia Growth Fund CNY HDG ACC
+968073.OF,FSHKG08AAC,HK0000584083,摩根亚洲增长基金 PRC-CNY 累积,JPMorgan Asia Growth Fund CNY ACC
+968078.OF,FS0000D311,HK0000619657,东方汇理创新动力股票基金 M-CNY HDG 累积,Amundi HK - Disruptive Opportunities Equity Fund M-CNY HDG ACC
+968077.OF,FS0000D311,HK0000619665,东方汇理创新动力股票基金 M-CNY HDG 派息,Amundi HK - Disruptive Opportunities Equity Fund M-CNY HDG DIST
+968213.OF,0P00001BIJ,HK0000964608,摩根亚洲高息股票基金 PRC 人民币对冲 累计,JPMorgan Asia Equity High Income Fund
+968214.OF,0P00001BIJ,HK0000964608,摩根亚洲高息股票基金 PRC 人民币对冲 每月派息,JPMorgan Asia Equity High Income Fund
+968215.OF,0P00001BIJ,HK0000964608,摩根亚洲高息股票基金 PRC 人民币 累计,JPMorgan Asia Equity High Income Fund
+968216.OF,0P00001BIJ,HK0000964608,摩根亚洲高息股票基金 PRC 人民币 每月派息,JPMorgan Asia Equity High Income Fund
+968159.OF,FSHKG0897G,HK001042776,摩根香港基金 PRC-CNY 累计,JPMorgan SAR Hong Kong PRC
+968158.OF,FSHKG0897G,HK001042800,摩根香港基金 PRC-CNY 对冲 累计,JPMorgan SAR Hong Kong PRC Hedged
+969157.OF,FS00009SFB,HK001044327,东亚联丰环球股票基金 PRC-CNY 累积,BEA Union Investment Global Equity Fund (GLE)
+968168.OF,FS0000CQAY,HK001045092,百达策略收益 M-CNY 累积,Pictet Strategic Income M-CNY ACC
+968163.OF,FSGBR06GP7,HK001066676,摩根亚洲总收益债券基金 PRC-CNY 累积,JPMorgan Asian Total Return Bond Fund PRC-CNY ACC
+968164.OF,FSGBR06GP7,HK001066684,摩根亚洲总收益债券基金 PRC-CNY 派息,JPMorgan Asian Total Return Bond Fund PRC-CNY DIST
+968162.OF,FSGBR05GK2,HK001066692,摩根太平洋证券基金 PRC-CNY 累计,JPMorgan Pacific Securities Fund PRC-CNY ACC
+968187.OF,FSUSA0BBON,HK001087151,东方汇理灵活配置基金 RMB 对冲 累积,Amundi HK Portfolio - Balanced Fund RMB (hedged) - Acc.
+968188.OF,FSUSA0BBON,HK001087169,东方汇理灵活配置基金 RMB 对冲 派息,Amundi HK Portfolio - Balanced Fund RMB (hedged) - Dis.
+968189.OF,FSUSA0BBON,HK001087177,东方汇理灵活配置基金 RMB 累积,Amundi HK Portfolio - Balanced Fund RMB - Acc.
+968190.OF,FSUSA0BBON,HK001087185,东方汇理灵活配置基金 RMB 派息,Amundi HK Portfolio - Balanced Fund RMB - Dis.
+968183.OF,FSUSA0BBOM,HK001087193,东方汇理平衡基金 RMB 对冲 累积,Amundi HK Portfolio - Defensive Balanced Fund RMB (hedged) - Acc.
+968184.OF,FSUSA0BBOM,HK001087201,东方汇理平衡基金 RMB 对冲 派息,Amundi HK Portfolio - Defensive Balanced Fund RMB (hedged) - Dis.
+968185.OF,FSUSA0BBOM,HK001087219,东方汇理平衡基金 RMB 累积,Amundi HK Portfolio - Defensive Balanced Fund RMB - Acc.
+968186.OF,FSUSA0BBOM,HK001087227,东方汇理平衡基金 RMB 派息,Amundi HK Portfolio - Defensive Balanced Fund RMB - Dis.
+968171.OF,FSUSA0BBOO,HK001122040,东方汇理香港增长基金 M CNY 累积,Amundi HK-Growth Fund M CNY ACC
+968172.OF,FSUSA0BBOO,HK001122057,东方汇理香港增长基金 M CNY 派息,Amundi HK-Growth Fund M CNY DIST
+968173.OF,FS0000D311,HK001122065,东方汇理创新动力股票基金 M-CNY 累积,Amundi HK - Disruptive Opportunities Equity Fund M-CNY ACC
+968174.OF,FS0000D311,HK001122073,东方汇理创新动力股票基金 M-CNY 派息,Amundi HK - Disruptive Opportunities Equity Fund M-CNY DIST
+968179.OF,FS0000E82B,HK001153383,汇丰亚洲多元资产入息基金 BC-RMB,HSBC Asia Multi-Asset High Income Fund BC-RMB
+968180.OF,FS0000E82B,HK001153391,汇丰亚洲多元资产入息基金 BCO-RMB,HSBC Asia Multi-Asset High Income Fund BCO-RMB
+968181.OF,FS0000E82B,HK001153409,汇丰亚洲多元资产入息基金 BM2-RMB,HSBC Asia Multi-Asset High Income Fund BM2-RMB
+968182.OF,FS0000E82B,HK001153417,汇丰亚洲多元资产入息基金 BM30-RMB,HSBC Asia Multi-Asset High Income Fund BM30-RMB
+968176.OF,FS0000CQAY,HK001157152,百达策略收益 M-CNY 派息,Pictet Strategic Income M-CNY DIST
+968175.OF,FS0000CQAY,HK001157160,百达策略收益 HM-CNY 派息,Pictet Strategic Income HM-CNY DIST
